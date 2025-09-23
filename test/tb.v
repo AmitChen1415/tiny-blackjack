@@ -27,8 +27,20 @@ module tb ();
   wire VGND = 1'b0;
 `endif
 
+  initial clk = 0;
+  always #20 clk = ~clk;  // 25 MHz -> 40 ns period
+
+  initial begin
+  rst_n = 0;
+  ena   = 1;
+  ui_in = 8'b0;
+  uio_in = 8'b0;
+  #200;
+  rst_n = 1;   // release reset after 200 ns
+  end
+
   // Replace tt_um_example with your module name:
-  tt_um_example user_project (
+  tt_um_red_square square_inst (
 
       // Include power ports for the Gate Level test:
 `ifdef GL_TEST
