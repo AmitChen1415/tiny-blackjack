@@ -18,18 +18,23 @@ module tt_um_blackjack (
   assign uio_oe  = 8'b0;
   wire clk_in_rst_n_sync;
 
-  // VGA
+  // VGA (dummy for now — replace later if you connect real VGA generator)
   wire hsync, vsync;
   wire [1:0] red, green, blue;
+  assign hsync = 1'b0;
+  assign vsync = 1'b0;
+  assign red   = 2'b00;
+  assign green = 2'b00;
+  assign blue  = 2'b00;
 
   // Buttons
-  wire hit, stand, double_bet, finish;
+  wire start, hit, stand, double_bet;
   assign hit        = ui_in[0];
   assign stand      = ui_in[1];
   assign double_bet = ui_in[2];
-  assign finish     = ui_in[3];
+  assign start      = ui_in[4];
 
-  // Outputs mapping 
+  // Outputs mapping (still mapped to VGA pins just for testing visuals)
   assign uo_out[0] = red[1];
   assign uo_out[1] = green[1];
   assign uo_out[2] = blue[1];
@@ -39,37 +44,22 @@ module tt_um_blackjack (
   assign uo_out[6] = blue[0];
   assign uo_out[7] = hsync;
   
-  // Connect to top game module
+  // Connect to Blackjack core
   blackjack_core game_inst (
-    .clk_25MHz(clk),
-    .rst_n(clk_in_rst_n_sync),
-    .btn_hit(hit),
-    .btn_stand(stand),
-    .btn_double(double_bet),
-    .btn_finish(finish),
-    .vga_hsync(hsync),
-    .vga_vsync(vsync),
-    .vga_r(red),
-    .vga_g(green),
-    .vga_b(blue)
+    .clk        (clk),
+    .rst_n      (clk_in_rst_n_sync),
+    .btn_hit    (hit),
+    .btn_stand  (stand),
+    .btn_double (double_bet),
+    .btn_start  (start)
+    // RNG load/seed left unconnected here — can tie off or expose via uio if needed
   );
 
   // Power-up synchronizer
   pwrup_synchronizer pwrup_sync_inst (
-      .clk_in(clk),
-      .rst_n(rst_n),
-      .clk_in_rst_n_sync(clk_in_rst_n_sync)
+      .clk_in            (clk),
+      .rst_n             (rst_n),
+      .clk_in_rst_n_sync (clk_in_rst_n_sync)
   );
-
-  // Red Square
-  // red_square red_sq_inst (
-  // .clk_25MHz (clk),
-  // .rst_n     (clk_in_rst_n_sync),
-  // .vga_hsync (hsync),
-  // .vga_vsync (vsync),
-  // .vga_r     (red),
-  // .vga_g     (green),
-  // .vga_b     (blue)
-  // );
 
 endmodule
