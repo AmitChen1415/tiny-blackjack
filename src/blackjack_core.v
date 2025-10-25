@@ -24,13 +24,16 @@ module blackjack_core (
     input  wire       btn_start,    // Start round
 
     // RNG seeding
-    input  wire       rng_load,     // Load new seed into RNG
+    input  wire        rng_load,     // Load new seed into RNG
     input  wire [15:0] rng_seed,    // Seed value for RNG
 
     // Game outputs
     output reg  [5:0] user_total,   // Player's current card total
     output reg  [5:0] dealer_total, // Dealer's current card total
     output reg  [9:0] balance       // Player's balance (chips)
+  , output wire [4:0] dbg_last_card
+  , output wire [1:0] dbg_deal_count
+  , output wire       dbg_blackjack
 );
 
   // ------------------------------------------------------------
@@ -53,10 +56,17 @@ module blackjack_core (
   localparam S_INIT_DEAL   = 3'd1;
   localparam S_PLAYER_TURN = 3'd2;
   localparam S_DEALER_TURN = 3'd3;
-  localparam S_EVALUATE    = 3'd4;
-  localparam S_UPDATE_BAL  = 3'd5;
+  localparam S_UPDATE_BAL  = 3'd4;
 
   reg [2:0] state, next_state;
+  // small counter to sequence the initial deal across multiple clocks so
+  // each card consumes a fresh RNG output instead of reusing the same value
+  reg [1:0] deal_count;
+
+  reg is_doubled; // flag to indicate if the player has doubled this round
+  reg blackjack;  // flag: player has a natural blackjack (21 with 2 cards)
+
+  wire player_finish_turn = btn_double || btn_stand || user_total == 21;
 
   // ------------------------------------------------------------
   // Sequential logic (state + game registers)
@@ -68,14 +78,48 @@ module blackjack_core (
       user_total   <= 0;
       dealer_total <= 0;
       balance      <= 10'd500;  // Starting balance
+      deal_count   <= 2'd0;
+      is_doubled   <= 1'b0;
+      blackjack    <= 1'b0;
     end else begin
       state <= next_state;
 
+      // Reset deal_count when not in the initial-deal state so new rounds
+      // will re-sequence the three card draws.
+      if (state != S_INIT_DEAL)
+        deal_count <= 2'd0;
+
       case (state)
         // Initial deal: user gets 2 cards, dealer gets 1
+        // We sequence the three card draws over three consecutive clocks
+        // so the LFSR produces a new value for each card.
         S_INIT_DEAL: begin
-          user_total   <= next_card_val + next_card_val;  
-          dealer_total <= next_card_val; 
+          is_doubled <= 1'b0; // reset double flag at start of round
+          blackjack  <= 1'b0; // reset blackjack flag at start of round
+          case (deal_count)
+            2'd0: begin
+              // first card to user (also clear totals first)
+              user_total   <= next_card_val;
+              dealer_total <= 0;
+              deal_count   <= deal_count + 1'b1;
+            end
+            2'd1: begin
+              // second card to user
+              // detect natural blackjack: first_card + second_card == 21
+              if (user_total + next_card_val == 6'd21)
+                blackjack <= 1'b1;
+              user_total   <= user_total + next_card_val;
+              deal_count   <= deal_count + 1'b1;
+            end
+            2'd2: begin
+              // dealer's single card
+              dealer_total <= next_card_val;
+              deal_count   <= deal_count + 1'b1; // becomes 3 (done)
+            end
+            default: begin
+              // keep values until state machine advances
+            end
+          endcase
         end
 
         // Player's turn: can Hit or Double
@@ -85,8 +129,7 @@ module blackjack_core (
           end
           if (btn_double) begin
             user_total <= user_total + next_card_val;
-            balance    <= balance - 10'd50; // Deduct bet immediately
-            // State machine will move directly to dealer's turn
+            is_doubled <= 1'b1; // Deduct if doubled
           end
         end
 
@@ -98,14 +141,20 @@ module blackjack_core (
 
         // Evaluate results and update balance
         S_UPDATE_BAL: begin
-          if (user_total > 21) begin
-            balance <= balance - 10'd50; // Player bust
-          end else if (dealer_total > 21 || user_total > dealer_total) begin
-            balance <= balance + 10'd50; // Player wins
-          end else if (user_total < dealer_total) begin
-            balance <= balance - 10'd50; // Dealer wins
+          // Natural blackjack pays a special reward
+          if (blackjack) begin
+            // User requested: give the player +150 on a 2-card 21
+            balance <= balance + 10'd150;
+          end else begin
+            if (user_total > 21) begin
+              balance <= balance - 10'd50; // Player bust
+            end else if (dealer_total > 21 || user_total > dealer_total) begin
+              balance <= balance + 10'd50 + 10'd50*is_doubled; // Player wins
+            end else if (user_total < dealer_total) begin
+              balance <= balance - 10'd50 - 10'd50*is_doubled; // Dealer wins
+            end
+            // Equal totals => no change (push)
           end
-          // Equal totals => no change (push)
         end
       endcase
     end
@@ -120,25 +169,32 @@ module blackjack_core (
       // Wait for "start" button to begin round
       S_IDLE:       if (btn_start)  next_state = S_INIT_DEAL;
 
-      // After initial deal, go to player’s turn
-      S_INIT_DEAL:  next_state = S_PLAYER_TURN;
+    // After initial deal, go to player's turn only once the three card
+    // draws have completed (deal_count == 3). If the player hit a natural
+    // blackjack on the initial two cards, go straight to settlement.
+    S_INIT_DEAL:  if (deal_count == 2'd3) begin
+            if (blackjack) next_state = S_UPDATE_BAL; else next_state = S_PLAYER_TURN;
+          end else next_state = S_INIT_DEAL;
 
       // Player turn logic
       S_PLAYER_TURN: begin
-        if (btn_double)         next_state = S_DEALER_TURN;   // Double ends turn
-        else if (btn_stand)     next_state = S_DEALER_TURN;   // Stand ends turn
-        else if (user_total >= 21) next_state = S_EVALUATE;   // Auto evaluate if 21/bust
+        if (player_finish_turn)   next_state = S_DEALER_TURN;  // Double ends turn
+        else if (user_total > 21) next_state = S_UPDATE_BAL;   // Auto evaluate if bust
+        else                      next_state = S_PLAYER_TURN;     
       end
 
-      // Dealer turn ends once >= 17
-      S_DEALER_TURN: if (dealer_total >= 17) next_state = S_EVALUATE;
-
-      // Always proceed to balance update
-      S_EVALUATE:    next_state = S_UPDATE_BAL;
+      // Dealer turn ends once >= 17 (go straight to balance update)
+      S_DEALER_TURN: if (dealer_total >= 17) next_state = S_UPDATE_BAL;
 
       // After updating balance, return to IDLE (auto new round possible)
       S_UPDATE_BAL:  next_state = S_IDLE;
     endcase
   end
+
+    // expose the current RNG/card value and deal counter for debugging and testing
+    assign dbg_last_card  = next_card_val;
+    assign dbg_deal_count = deal_count;
+    // expose blackjack detection for testbench
+    assign dbg_blackjack  = blackjack;
 
 endmodule
