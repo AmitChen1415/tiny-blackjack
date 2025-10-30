@@ -3,7 +3,7 @@
 * SPDX-License-Identifier: Apache-2.0
 */
 `default_nettype none
-module tt_um_blackjack (
+module tt_um_AmitChen1415 (
     input  wire [7:0] ui_in,
     output wire [7:0] uo_out,
     input  wire [7:0] uio_in,
