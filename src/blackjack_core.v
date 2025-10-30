@@ -144,6 +144,7 @@ module blackjack_core (
           // Natural blackjack pays a special reward
           if (blackjack) begin
             // User requested: give the player +150 on a 2-card 21
+              //need to change to 75
             balance <= balance + 10'd150;
           end else begin
             if (user_total > 21) begin
