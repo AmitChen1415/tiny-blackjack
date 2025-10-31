@@ -123,13 +123,15 @@ module blackjack_core (
         end
 
         // Player's turn: can Hit or Double
+        //need if else 
         S_PLAYER_TURN: begin
-          if (btn_hit) begin
-            user_total <= user_total + next_card_val;
-          end
+          // Ensure only one action consumes the RNG result per clock.
+          // If both buttons are asserted, prefer DOUBLE over HIT.
           if (btn_double) begin
             user_total <= user_total + next_card_val;
-            is_doubled <= 1'b1; // Deduct if doubled
+            is_doubled <= 1'b1; // mark doubled (stake handled in settlement)
+          end else if (btn_hit) begin
+            user_total <= user_total + next_card_val;
           end
         end
 
@@ -142,10 +144,8 @@ module blackjack_core (
         // Evaluate results and update balance
         S_UPDATE_BAL: begin
           // Natural blackjack pays a special reward
-          if (blackjack) begin
-            // User requested: give the player +150 on a 2-card 21
-              //need to change to 75
-            balance <= balance + 10'd150;
+          if (blackjack) begin 
+            balance <= balance + 7'd75
           end else begin
             if (user_total > 21) begin
               balance <= balance - 10'd50; // Player bust

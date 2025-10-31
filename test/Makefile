@@ -5,7 +5,15 @@
 SIM ?= icarus
 TOPLEVEL_LANG ?= verilog
 SRC_DIR = $(PWD)/../src
-PROJECT_SOURCES = project.v
+# List of source files (relative to src/) — keep in sync with info.yaml
+PROJECT_SOURCES = tt_um_AmitChen1415.v \
+				  blackjack_core.v \
+				  card_regfile.v \
+				  lfsr16.v \
+				  pwrup_synchronizer.v \
+				  red_square.v \
+				  rng_card.v \
+				  vga_controller.v
 
 ifneq ($(GATES),yes)
 

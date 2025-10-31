@@ -40,7 +40,7 @@ module tb ();
   end
 
   // Replace tt_um_example with your module name:
-  tt_um_red_square square_inst (
+  tt_um_red_AmitChen1415 user_projact (
 
       // Include power ports for the Gate Level test:
 `ifdef GL_TEST
