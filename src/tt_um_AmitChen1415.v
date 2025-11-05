@@ -18,14 +18,26 @@ module tt_um_AmitChen1415 (
   assign uio_oe  = 8'b0;
   wire clk_in_rst_n_sync;
 
-  // VGA (dummy for now — replace later if you connect real VGA generator)
+  // VGA (dummy for now — replace later if you connect real VGA generator - blackjack_table module)
   wire hsync, vsync;
   wire [1:0] red, green, blue;
-  assign hsync = 1'b0;
-  assign vsync = 1'b0;
-  assign red   = 2'b00;
-  assign green = 2'b00;
-  assign blue  = 2'b00;
+  // assign hsync = 1'b0;
+  // assign vsync = 1'b0;
+  // assign red   = 2'b00;
+  // assign green = 2'b00;
+  // assign blue  = 2'b00;
+
+  
+// Instantiate the table renderer
+blackjack_table gfx (
+   .clk_25MHz(clk_25MHz),  // your 25 MHz pixel clock
+   .rst_n(rst_n),
+    .vga_hsync(hsync),
+   .vga_vsync(vsync),
+   .vga_r(red),
+   .vga_g(green),
+   .vga_b(blue)
+);
 
   // Buttons
   wire start, hit, stand, double_bet;

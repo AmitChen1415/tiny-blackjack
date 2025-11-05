@@ -252,3 +252,173 @@ async def test_project(dut):
 
     # Keep testing the module by changing the input values, waiting for
     # one or more clock cycles, and asserting the expected output values.
+
+#-----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+#  Basic functionality tests
+# -----------------------------------------------------------------------------
+
+@cocotb.test()
+async def test_reset_and_default_balance(dut):
+    """Verify that reset works and the initial balance is 500."""
+    game = GameDriver(dut)
+    await game.reset()
+
+    bal = game.read_balance_now()
+    if bal is not None:
+        assert bal == 500, f"Expected balance 500 after reset, got {bal}"
+
+
+@cocotb.test()
+async def test_start_initial_deal_completes(dut):
+    """Press START and verify that the initial deal finishes (3 total cards drawn)."""
+    game = GameDriver(dut)
+    await game.reset()
+
+    await game.start()
+    assert await game.wait_initial_deal(), "Initial deal did not complete"
+
+    deal_cnt = game.read_deal_count_now()
+    if deal_cnt is not None:
+        assert deal_cnt == 3, f"Expected deal_count == 3, got {deal_cnt}"
+
+    # Totals should be non-zero after two user cards and one dealer card
+    u = game.read_user_total_now()
+    d = game.read_dealer_total_now()
+    if u is not None:
+        assert u > 0, f"User total should be >0 after initial deal, got {u}"
+    if d is not None:
+        assert d >= 0, f"Dealer total should be >=0, got {d}"
+
+
+@cocotb.test()
+async def test_hit_consumes_rng_and_updates_total(dut):
+    """Verify that HIT increases user_total by a valid card amount [2..11]."""
+    game = GameDriver(dut)
+    await game.reset()
+    await game.start_and_wait_deal()
+
+    user_before = game.read_user_total_now()
+    await game.hit_and_wait()
+    user_after = game.read_user_total_now()
+
+    # If hierarchy visible: delta must be within [2..11]
+    if user_before is not None and user_after is not None:
+        delta = user_after - user_before
+        assert 2 <= delta <= 11, f"HIT added invalid card value delta={delta}"
+    else:
+        # Fallback: at least check that user_total increased
+        assert user_after > user_before, "User total did not increase after HIT"
+
+
+@cocotb.test()
+async def test_double_ends_player_turn(dut):
+    """Verify that DOUBLE action ends player's turn and triggers dealer phase."""
+    game = GameDriver(dut)
+    await game.reset()
+    await game.start_and_wait_deal()
+
+    await game.double_and_wait()
+    await game.wait_until_dealer_done()
+
+    d = game.read_dealer_total_now()
+    if d is not None:
+        assert d >= 17, f"Dealer expected to finish at >=17, got {d}"
+
+
+@cocotb.test()
+async def test_stand_triggers_dealer_phase(dut):
+    """Verify that STAND immediately starts dealer phase."""
+    game = GameDriver(dut)
+    await game.reset()
+    await game.start_and_wait_deal()
+
+    await game.stand()
+    await game.wait_until_dealer_done()
+    d = game.read_dealer_total_now()
+    if d is not None:
+        assert d >= 17, f"Dealer expected to finish at >=17, got {d}"
+
+# Maybe will not get bj in this test due to randomness. if want to check bj, maybe nee to hardcoded the user cards.
+@cocotb.test()
+async def test_settlement_balance_delta_is_valid(dut):
+    """
+    Verify that after a round completes, balance change is one of valid values:
+    - Normal round: {-50, 0, +50}
+    - Double bet: {-100, +100}
+    - Natural blackjack: +75 (per current implementation)
+    """
+    game = GameDriver(dut)
+    await game.reset()
+    bal_before = game.read_balance_now()
+
+    await game.start_and_wait_deal()
+    bj = game.read_blackjack_now()
+
+    await game.stand()
+    await game.wait_until_dealer_done()
+    await ClockCycles(dut.clk, 4)
+
+    bal_after = game.read_balance_now()
+    if bal_before is None or bal_after is None:
+        return
+
+    delta = bal_after - bal_before
+    valid_regular = {-50, 0, +50}
+    valid_blackjack = {+75}
+
+    if bj is not None and bj == 1:
+        assert delta in valid_blackjack, f"Blackjack payout expected +75, got {delta}"
+    else:
+        assert delta in valid_regular, f"Settlement delta invalid: {delta}"
+
+
+@cocotb.test()
+async def test_bust_flows_to_settlement(dut):
+    """If user exceeds 21, verify that game moves to settlement and balance updates."""
+    game = GameDriver(dut)
+    await game.reset()
+    bal0 = game.read_balance_now()
+
+    await game.start_and_wait_deal()
+
+    # Try multiple HITs to likely exceed 21
+    for _ in range(6):
+        await game.hit_and_wait()
+
+    await game.wait_until_dealer_done()
+    await ClockCycles(dut.clk, 8)
+
+    bal1 = game.read_balance_now()
+    if bal0 is not None and bal1 is not None:
+        assert bal1 != bal0, "Balance did not change after bust round"
+
+
+@cocotb.test()
+async def test_multiple_rounds_smoke(dut):
+    """
+    Smoke test: run several random rounds with small variations.
+    Ensures game never deadlocks and balance stays within reasonable limits.
+    """
+    import random
+
+    game = GameDriver(dut)
+    await game.reset()
+
+    for _ in range(8):
+        await game.start_and_wait_deal()
+
+        # Random lightweight strategy: sometimes double, sometimes hit a few times
+        if random.randint(0, 3) == 0:
+            await game.double_and_wait()
+        else:
+            for _ in range(random.randint(0, 2)):
+                await game.hit_and_wait()
+            await game.stand()
+
+        await game.wait_until_dealer_done()
+        await ClockCycles(dut.clk, 6)
+
+        bal = game.read_balance_now()
+        if bal is not None:
+            assert 0 <= bal <= 2000, f"Balance out of sane range: {bal}"
