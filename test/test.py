@@ -295,7 +295,9 @@ async def test_start_initial_deal_completes(dut):
 async def test_hit_consumes_rng_and_updates_total(dut):
     """Verify that HIT increases user_total by a valid card amount [2..11]."""
     game = GameDriver(dut)
-    await game.reset()
+    await game.reset()ךל
+
+    
     await game.start_and_wait_deal()
 
     user_before = game.read_user_total_now()
