@@ -145,7 +145,7 @@ module blackjack_core (
         S_UPDATE_BAL: begin
           // Natural blackjack pays a special reward
           if (blackjack) begin 
-            balance <= balance + 7'd75
+            balance <= balance + 7'd75;
           end else begin
             if (user_total > 21) begin
               balance <= balance - 10'd50; // Player bust
