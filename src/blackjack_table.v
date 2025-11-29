@@ -1,20 +1,41 @@
 // ============================================================================
 // blackjack_table.v  (640x480 @ 25 MHz)
-// Felt background, dealer+player cards with green gap, "BLACKJACK" in center,
-// "Balance: $1100" at left-middle (red), and a face-down deck on right-middle.
-// Digits inside cards move with the card position.
-// (Buttons were removed to free space for future cards.)
-// NO FUNCTIONS VERSION – only assigns + always blocks.
+// Felt background, up to 5 dealer + 5 player cards, "BLACKJACK" in center,
+// "Balance: $1100" at left-middle (red), a face-down deck on right-middle.
+//
+//  - 10 inputs for card values:
+//      dealer_card1..5, player_card1..5
+//  - Each input is 4-bit value: 0 = no card, 1–9 = digit drawn on the card.
+//  - Card positions are fixed. Card 1 is left-most, others are added to the right.
+//  - Each card shows:
+//        * value at top-left
+//        * value at bottom-right
+//        * red diamond in the card center
 // ============================================================================
 
 module blackjack_table (
-    input  wire clk_25MHz,
-    input  wire rst_n,
-    output wire vga_hsync,
-    output wire vga_vsync,
-    output reg  [1:0] vga_r,
-    output reg  [1:0] vga_g,
-    output reg  [1:0] vga_b
+    input  wire        clk_25MHz,
+    input  wire        rst_n,
+
+    // Dealer cards (top row)
+    input  wire [3:0]  dealer_card1,
+    input  wire [3:0]  dealer_card2,
+    input  wire [3:0]  dealer_card3,
+    input  wire [3:0]  dealer_card4,
+    input  wire [3:0]  dealer_card5,
+
+    // Player cards (bottom row)
+    input  wire [3:0]  player_card1,
+    input  wire [3:0]  player_card2,
+    input  wire [3:0]  player_card3,
+    input  wire [3:0]  player_card4,
+    input  wire [3:0]  player_card5,
+
+    output wire        vga_hsync,
+    output wire        vga_vsync,
+    output reg  [1:0]  vga_r,
+    output reg  [1:0]  vga_g,
+    output reg  [1:0]  vga_b
 );
 
     // -------------------------
@@ -33,22 +54,33 @@ module blackjack_table (
     wire active = (x < 640) && (y < 480);
 
     // -------------------------
-    // Layout (cards with visible GAP)
+    // Layout (up to 5 cards each, fixed positions)
     // -------------------------
     localparam CARD_W   = 70;
     localparam CARD_H   = 100;
     localparam CARD_GAP = 8;       // visible green strip between cards
     localparam BORDER   = 2;
 
-    // Dealer (top center)
-    localparam D_Y  = 60;
-    localparam D_X0 = 320 - CARD_W - (CARD_GAP/2);
-    localparam D_X1 = D_X0 + CARD_W + CARD_GAP;
+    // Center 5 cards around x = 320:
+    // total width = 5*CARD_W + 4*CARD_GAP
+    localparam TOTAL_W  = 5*CARD_W + 4*CARD_GAP;
+    localparam BASE_X   = 320 - (TOTAL_W/2);   // left-most card
 
-    // Player (bottom center)
+    // Dealer (top)
+    localparam D_Y  = 60;
+    localparam D_X0 = BASE_X;
+    localparam D_X1 = BASE_X + (CARD_W+CARD_GAP)*1;
+    localparam D_X2 = BASE_X + (CARD_W+CARD_GAP)*2;
+    localparam D_X3 = BASE_X + (CARD_W+CARD_GAP)*3;
+    localparam D_X4 = BASE_X + (CARD_W+CARD_GAP)*4;
+
+    // Player (bottom)
     localparam P_Y  = 300;
-    localparam P_X0 = 320 - CARD_W - (CARD_GAP/2);
-    localparam P_X1 = P_X0 + CARD_W + CARD_GAP;
+    localparam P_X0 = BASE_X;
+    localparam P_X1 = BASE_X + (CARD_W+CARD_GAP)*1;
+    localparam P_X2 = BASE_X + (CARD_W+CARD_GAP)*2;
+    localparam P_X3 = BASE_X + (CARD_W+CARD_GAP)*3;
+    localparam P_X4 = BASE_X + (CARD_W+CARD_GAP)*4;
 
     // -------------------------
     // Deck (right-middle, opposite "Balance")
@@ -67,26 +99,54 @@ module blackjack_table (
     // Colors (2-bit each)
     // -------------------------
     localparam [1:0] C0      = 2'b00; // black
-    localparam [1:0] C1      = 2'b01; // gray (for center text)
+    localparam [1:0] C1      = 2'b01; // gray
     localparam [1:0] C2      = 2'b11; // white
     localparam [1:0] G_DARK  = 2'b10; // felt
 
     // -------------------------
-    // Primitive areas by assigns (rect / rect_border inlined)
+    // Card presence (0 => no card drawn at all)
     // -------------------------
+    wire d0_has = (dealer_card1 != 4'd0);
+    wire d1_has = (dealer_card2 != 4'd0);
+    wire d2_has = (dealer_card3 != 4'd0);
+    wire d3_has = (dealer_card4 != 4'd0);
+    wire d4_has = (dealer_card5 != 4'd0);
 
-    // Card fills
+    wire p0_has = (player_card1 != 4'd0);
+    wire p1_has = (player_card2 != 4'd0);
+    wire p2_has = (player_card3 != 4'd0);
+    wire p3_has = (player_card4 != 4'd0);
+    wire p4_has = (player_card5 != 4'd0);
+
+    // -------------------------
+    // Primitive areas: card rectangles
+    // -------------------------
+    // dealer fills
     wire d0_fill = (x >= D_X0) && (x < D_X0+CARD_W) &&
                    (y >= D_Y  ) && (y < D_Y+CARD_H);
     wire d1_fill = (x >= D_X1) && (x < D_X1+CARD_W) &&
                    (y >= D_Y  ) && (y < D_Y+CARD_H);
+    wire d2_fill = (x >= D_X2) && (x < D_X2+CARD_W) &&
+                   (y >= D_Y  ) && (y < D_Y+CARD_H);
+    wire d3_fill = (x >= D_X3) && (x < D_X3+CARD_W) &&
+                   (y >= D_Y  ) && (y < D_Y+CARD_H);
+    wire d4_fill = (x >= D_X4) && (x < D_X4+CARD_W) &&
+                   (y >= D_Y  ) && (y < D_Y+CARD_H);
+
+    // player fills
     wire p0_fill = (x >= P_X0) && (x < P_X0+CARD_W) &&
                    (y >= P_Y  ) && (y < P_Y+CARD_H);
     wire p1_fill = (x >= P_X1) && (x < P_X1+CARD_W) &&
                    (y >= P_Y  ) && (y < P_Y+CARD_H);
+    wire p2_fill = (x >= P_X2) && (x < P_X2+CARD_W) &&
+                   (y >= P_Y  ) && (y < P_Y+CARD_H);
+    wire p3_fill = (x >= P_X3) && (x < P_X3+CARD_W) &&
+                   (y >= P_Y  ) && (y < P_Y+CARD_H);
+    wire p4_fill = (x >= P_X4) && (x < P_X4+CARD_W) &&
+                   (y >= P_Y  ) && (y < P_Y+CARD_H);
 
-    // Card borders
-    wire d0_brd = 
+    // dealer borders
+    wire d0_brd =
        ((x >= D_X0              ) && (x < D_X0+CARD_W       ) && (y >= D_Y               ) && (y < D_Y+BORDER        )) || // top
        ((x >= D_X0              ) && (x < D_X0+CARD_W       ) && (y >= D_Y+CARD_H-BORDER ) && (y < D_Y+CARD_H        )) || // bottom
        ((x >= D_X0              ) && (x < D_X0+BORDER       ) && (y >= D_Y               ) && (y < D_Y+CARD_H        )) || // left
@@ -98,6 +158,25 @@ module blackjack_table (
        ((x >= D_X1              ) && (x < D_X1+BORDER       ) && (y >= D_Y               ) && (y < D_Y+CARD_H        )) ||
        ((x >= D_X1+CARD_W-BORDER) && (x < D_X1+CARD_W       ) && (y >= D_Y               ) && (y < D_Y+CARD_H        ));
 
+    wire d2_brd =
+       ((x >= D_X2              ) && (x < D_X2+CARD_W       ) && (y >= D_Y               ) && (y < D_Y+BORDER        )) ||
+       ((x >= D_X2              ) && (x < D_X2+CARD_W       ) && (y >= D_Y+CARD_H-BORDER ) && (y < D_Y+CARD_H        )) ||
+       ((x >= D_X2              ) && (x < D_X2+BORDER       ) && (y >= D_Y               ) && (y < D_Y+CARD_H        )) ||
+       ((x >= D_X2+CARD_W-BORDER) && (x < D_X2+CARD_W       ) && (y >= D_Y               ) && (y < D_Y+CARD_H        ));
+
+    wire d3_brd =
+       ((x >= D_X3              ) && (x < D_X3+CARD_W       ) && (y >= D_Y               ) && (y < D_Y+BORDER        )) ||
+       ((x >= D_X3              ) && (x < D_X3+CARD_W       ) && (y >= D_Y+CARD_H-BORDER ) && (y < D_Y+CARD_H        )) ||
+       ((x >= D_X3              ) && (x < D_X3+BORDER       ) && (y >= D_Y               ) && (y < D_Y+CARD_H        )) ||
+       ((x >= D_X3+CARD_W-BORDER) && (x < D_X3+CARD_W       ) && (y >= D_Y               ) && (y < D_Y+CARD_H        ));
+
+    wire d4_brd =
+       ((x >= D_X4              ) && (x < D_X4+CARD_W       ) && (y >= D_Y               ) && (y < D_Y+BORDER        )) ||
+       ((x >= D_X4              ) && (x < D_X4+CARD_W       ) && (y >= D_Y+CARD_H-BORDER ) && (y < D_Y+CARD_H        )) ||
+       ((x >= D_X4              ) && (x < D_X4+BORDER       ) && (y >= D_Y               ) && (y < D_Y+CARD_H        )) ||
+       ((x >= D_X4+CARD_W-BORDER) && (x < D_X4+CARD_W       ) && (y >= D_Y               ) && (y < D_Y+CARD_H        ));
+
+    // player borders
     wire p0_brd =
        ((x >= P_X0              ) && (x < P_X0+CARD_W       ) && (y >= P_Y               ) && (y < P_Y+BORDER        )) ||
        ((x >= P_X0              ) && (x < P_X0+CARD_W       ) && (y >= P_Y+CARD_H-BORDER ) && (y < P_Y+CARD_H        )) ||
@@ -110,7 +189,27 @@ module blackjack_table (
        ((x >= P_X1              ) && (x < P_X1+BORDER       ) && (y >= P_Y               ) && (y < P_Y+CARD_H        )) ||
        ((x >= P_X1+CARD_W-BORDER) && (x < P_X1+CARD_W       ) && (y >= P_Y               ) && (y < P_Y+CARD_H        ));
 
+    wire p2_brd =
+       ((x >= P_X2              ) && (x < P_X2+CARD_W       ) && (y >= P_Y               ) && (y < P_Y+BORDER        )) ||
+       ((x >= P_X2              ) && (x < P_X2+CARD_W       ) && (y >= P_Y+CARD_H-BORDER ) && (y < P_Y+CARD_H        )) ||
+       ((x >= P_X2              ) && (x < P_X2+BORDER       ) && (y >= P_Y               ) && (y < P_Y+CARD_H        )) ||
+       ((x >= P_X2+CARD_W-BORDER) && (x < P_X2+CARD_W       ) && (y >= P_Y               ) && (y < P_Y+CARD_H        ));
+
+    wire p3_brd =
+       ((x >= P_X3              ) && (x < P_X3+CARD_W       ) && (y >= P_Y               ) && (y < P_Y+BORDER        )) ||
+       ((x >= P_X3              ) && (x < P_X3+CARD_W       ) && (y >= P_Y+CARD_H-BORDER ) && (y < P_Y+CARD_H        )) ||
+       ((x >= P_X3              ) && (x < P_X3+BORDER       ) && (y >= P_Y               ) && (y < P_Y+CARD_H        )) ||
+       ((x >= P_X3+CARD_W-BORDER) && (x < P_X3+CARD_W       ) && (y >= P_Y               ) && (y < P_Y+CARD_H        ));
+
+    wire p4_brd =
+       ((x >= P_X4              ) && (x < P_X4+CARD_W       ) && (y >= P_Y               ) && (y < P_Y+BORDER        )) ||
+       ((x >= P_X4              ) && (x < P_X4+CARD_W       ) && (y >= P_Y+CARD_H-BORDER ) && (y < P_Y+CARD_H        )) ||
+       ((x >= P_X4              ) && (x < P_X4+BORDER       ) && (y >= P_Y               ) && (y < P_Y+CARD_H        )) ||
+       ((x >= P_X4+CARD_W-BORDER) && (x < P_X4+CARD_W       ) && (y >= P_Y               ) && (y < P_Y+CARD_H        ));
+
+    // -------------------------
     // Deck rectangles
+    // -------------------------
     wire deck_back =
        (x >= DECK_X+DECK2_DX) && (x < DECK_X+DECK2_DX+DECK_W) &&
        (y >= DECK_Y+DECK2_DY) && (y < DECK_Y+DECK2_DY+DECK_H);
@@ -120,10 +219,10 @@ module blackjack_table (
        (y >= DECK_Y) && (y < DECK_Y+DECK_H);
 
     wire deck_brd =
-       ((x >= DECK_X                 ) && (x < DECK_X+DECK_W           ) && (y >= DECK_Y                  ) && (y < DECK_Y+DECK_BORDER        )) ||
-       ((x >= DECK_X                 ) && (x < DECK_X+DECK_W           ) && (y >= DECK_Y+DECK_H-DECK_BORDER) && (y < DECK_Y+DECK_H           )) ||
-       ((x >= DECK_X                 ) && (x < DECK_X+DECK_BORDER      ) && (y >= DECK_Y                  ) && (y < DECK_Y+DECK_H            )) ||
-       ((x >= DECK_X+DECK_W-DECK_BORDER) && (x < DECK_X+DECK_W        ) && (y >= DECK_Y                  ) && (y < DECK_Y+DECK_H            ));
+       ((x >= DECK_X                 ) && (x < DECK_X+DECK_W              ) && (y >= DECK_Y                    ) && (y < DECK_Y+DECK_BORDER        )) ||
+       ((x >= DECK_X                 ) && (x < DECK_X+DECK_W              ) && (y >= DECK_Y+DECK_H-DECK_BORDER ) && (y < DECK_Y+DECK_H             )) ||
+       ((x >= DECK_X                 ) && (x < DECK_X+DECK_BORDER         ) && (y >= DECK_Y                    ) && (y < DECK_Y+DECK_H             )) ||
+       ((x >= DECK_X+DECK_W-DECK_BORDER) && (x < DECK_X+DECK_W           ) && (y >= DECK_Y                    ) && (y < DECK_Y+DECK_H             ));
 
     wire inside_deck =
        (x >= DECK_X+DECK_BORDER) && (x < DECK_X+DECK_W-DECK_BORDER) &&
@@ -132,17 +231,14 @@ module blackjack_table (
     wire deck_checker = inside_deck && (x[3] ^ y[3]);  // 8x8 checker
 
     // -------------------------
-    // Text: "BLACKJACK" in center
+    // "BLACKJACK" text in center
     // -------------------------
     localparam TXT_S   = 2;                         // scale
     localparam TXT_W   = 6*TXT_S;                   // char advance
     localparam TXT_X0  = 320 - (9*TXT_W)/2;         // 9 letters
     localparam TXT_Y0  = 230;
 
-    // We implement each letter with assigns only, using 5x7 patterns.
-
-    // Helpers are per-character: signed lx/ly, col, row, bit pattern.
-    // --- B (center) ---
+    // --- B ---
     wire signed [10:0] tB_lx = $signed({1'b0,x}) - $signed(TXT_X0 + 0*TXT_W);
     wire signed [10:0] tB_ly = $signed({1'b0,y}) - $signed(TXT_Y0);
     wire        tB_in  = (tB_lx >= 0) && (tB_lx < 5*TXT_S) &&
@@ -238,7 +334,7 @@ module blackjack_table (
                          7'b0000000;
     wire        tJ = tJ_in && tJ_bits[6 - tJ_row];
 
-    // --- second A (A2) ---
+    // --- A2 ---
     wire signed [10:0] tA2_lx = $signed({1'b0,x}) - $signed(TXT_X0 + 6*TXT_W);
     wire signed [10:0] tA2_ly = $signed({1'b0,y}) - $signed(TXT_Y0);
     wire        tA2_in  = (tA2_lx >= 0) && (tA2_lx < 5*TXT_S) &&
@@ -254,7 +350,7 @@ module blackjack_table (
                           7'b0000000;
     wire        tA2 = tA2_in && tA2_bits[6 - tA2_row];
 
-    // --- second C (C2) ---
+    // --- C2 ---
     wire signed [10:0] tC2_lx = $signed({1'b0,x}) - $signed(TXT_X0 + 7*TXT_W);
     wire signed [10:0] tC2_ly = $signed({1'b0,y}) - $signed(TXT_Y0);
     wire        tC2_in  = (tC2_lx >= 0) && (tC2_lx < 5*TXT_S) &&
@@ -270,7 +366,7 @@ module blackjack_table (
                           7'b0000000;
     wire        tC2 = tC2_in && tC2_bits[6 - tC2_row];
 
-    // --- second K (K2) ---
+    // --- K2 ---
     wire signed [10:0] tK2_lx = $signed({1'b0,x}) - $signed(TXT_X0 + 8*TXT_W);
     wire signed [10:0] tK2_ly = $signed({1'b0,y}) - $signed(TXT_Y0);
     wire        tK2_in  = (tK2_lx >= 0) && (tK2_lx < 5*TXT_S) &&
@@ -289,12 +385,13 @@ module blackjack_table (
     wire blackjack_text = tB | tL | tA | tC | tK | tJ | tA2 | tC2 | tK2;
 
     // -------------------------
-    // Balance label (left-middle)  "BALANCE: $1100"
+    // Balance label "BALANCE: $1100" (left-middle)
     // -------------------------
     localparam BAL_S   = 2;
     localparam BAL_X0  = 40;
     localparam BAL_Y0  = 240;
 
+    // (exactly as before – unchanged; keeping for completeness)
     // B
     wire signed [10:0] bB_lx = $signed({1'b0,x}) - $signed(BAL_X0 + 0*6*BAL_S);
     wire signed [10:0] bB_ly = $signed({1'b0,y}) - $signed(BAL_Y0);
@@ -508,77 +605,392 @@ module blackjack_table (
                         b_colon | b_dol | b_n0 | b_n1 | b_n2 | b_n3;
 
     // -------------------------
-    // Digits inside each card (move with card)
+    // Digits inside each card: top-left
     // -------------------------
     localparam DIG_S      = 2;
-    localparam [9:0] INSET_X = 12, INSET_Y = 10;
+    localparam [9:0] INSET_X_TL = 12, INSET_Y_TL = 10;
 
-    // Example digits:
-    // D0 = "2"; D1 = "6"; P0 = "8"; P1 = "9"
+    // Bottom-right inset (same orientation, inside the card)
+    localparam [9:0] INSET_X_BR = 12;
+    localparam [9:0] INSET_Y_BR = 10;
 
-    // Dealer left card – "2"
-    wire signed [10:0] d0_lx = $signed({1'b0,x}) - $signed(D_X0 + INSET_X);
-    wire signed [10:0] d0_ly = $signed({1'b0,y}) - $signed(D_Y  + INSET_Y);
-    wire        d0_in = (d0_lx >= 0) && (d0_lx < 5*DIG_S) &&
-                        (d0_ly >= 0) && (d0_ly < 7*DIG_S);
-    wire [2:0]  d0_col = d0_lx[10:0] / DIG_S;
-    wire [2:0]  d0_row = d0_ly[10:0] / DIG_S;
-    wire [6:0]  d0_bits =
-        (d0_col==3'd0) ? 7'b0100011 :
-        (d0_col==3'd1) ? 7'b1000101 :
-        (d0_col==3'd2) ? 7'b1001001 :
-        (d0_col==3'd3) ? 7'b1010001 :
-        (d0_col==3'd4) ? 7'b0100001 :
-                          7'b0000000;
-    wire        d0_digit = d0_in && d0_bits[6 - d0_row];
+    // Dealer card 1 - top-left
+    wire signed [10:0] d0_lx = $signed({1'b0,x}) - $signed(D_X0 + INSET_X_TL);
+    wire signed [10:0] d0_ly = $signed({1'b0,y}) - $signed(D_Y   + INSET_Y_TL);
+    wire        d0_in   = (d0_lx >= 0) && (d0_lx < 5*DIG_S) &&
+                          (d0_ly >= 0) && (d0_ly < 7*DIG_S);
+    wire [2:0]  d0_col  = d0_lx[10:0] / DIG_S;
+    wire [2:0]  d0_row  = d0_ly[10:0] / DIG_S;
+    wire        d0_pix;
+    digit5x7_pixel d0_digit_gen (
+        .val(dealer_card1),
+        .col(d0_col),
+        .row(d0_row),
+        .on (d0_pix)
+    );
+    wire d0_digit = d0_in && d0_pix;
 
-    // Dealer right card – "6"
-    wire signed [10:0] d1_lx = $signed({1'b0,x}) - $signed(D_X1 + INSET_X);
-    wire signed [10:0] d1_ly = $signed({1'b0,y}) - $signed(D_Y  + INSET_Y);
-    wire        d1_in = (d1_lx >= 0) && (d1_lx < 5*DIG_S) &&
-                        (d1_ly >= 0) && (d1_ly < 7*DIG_S);
-    wire [2:0]  d1_col = d1_lx[10:0] / DIG_S;
-    wire [2:0]  d1_row = d1_ly[10:0] / DIG_S;
-    wire [6:0]  d1_bits =
-        (d1_col==3'd0) ? 7'b0111110 :
-        (d1_col==3'd1) ? 7'b1010001 :
-        (d1_col==3'd2) ? 7'b1010001 :
-        (d1_col==3'd3) ? 7'b1010001 :
-        (d1_col==3'd4) ? 7'b0001110 :
-                          7'b0000000;
-    wire        d1_digit = d1_in && d1_bits[6 - d1_row];
+    // Dealer card 1 - bottom-right
+    wire signed [10:0] d0b_lx = $signed({1'b0,x}) -
+                                $signed(D_X0 + CARD_W - INSET_X_BR - 5*DIG_S);
+    wire signed [10:0] d0b_ly = $signed({1'b0,y}) -
+                                $signed(D_Y  + CARD_H - INSET_Y_BR - 7*DIG_S);
+    wire        d0b_in   = (d0b_lx >= 0) && (d0b_lx < 5*DIG_S) &&
+                           (d0b_ly >= 0) && (d0b_ly < 7*DIG_S);
+    wire [2:0]  d0b_col  = d0b_lx[10:0] / DIG_S;
+    wire [2:0]  d0b_row  = d0b_ly[10:0] / DIG_S;
+    wire        d0b_pix;
+    digit5x7_pixel d0b_digit_gen (
+        .val(dealer_card1),
+        .col(d0b_col),
+        .row(d0b_row),
+        .on (d0b_pix)
+    );
+    wire d0b_digit = d0b_in && d0b_pix;
 
-    // Player left card – "8"
-    wire signed [10:0] p0_lx = $signed({1'b0,x}) - $signed(P_X0 + INSET_X);
-    wire signed [10:0] p0_ly = $signed({1'b0,y}) - $signed(P_Y  + INSET_Y);
-    wire        p0_in = (p0_lx >= 0) && (p0_lx < 5*DIG_S) &&
-                        (p0_ly >= 0) && (p0_ly < 7*DIG_S);
-    wire [2:0]  p0_col = p0_lx[10:0] / DIG_S;
-    wire [2:0]  p0_row = p0_ly[10:0] / DIG_S;
-    wire [6:0]  p0_bits =
-        (p0_col==3'd0) ? 7'b0110110 :
-        (p0_col==3'd1) ? 7'b1001001 :
-        (p0_col==3'd2) ? 7'b1001001 :
-        (p0_col==3'd3) ? 7'b1001001 :
-        (p0_col==3'd4) ? 7'b0110110 :
-                          7'b0000000;
-    wire        p0_digit = p0_in && p0_bits[6 - p0_row];
+    // Dealer card 2 - top-left
+    wire signed [10:0] d1_lx = $signed({1'b0,x}) - $signed(D_X1 + INSET_X_TL);
+    wire signed [10:0] d1_ly = $signed({1'b0,y}) - $signed(D_Y   + INSET_Y_TL);
+    wire        d1_in   = (d1_lx >= 0) && (d1_lx < 5*DIG_S) &&
+                          (d1_ly >= 0) && (d1_ly < 7*DIG_S);
+    wire [2:0]  d1_col  = d1_lx[10:0] / DIG_S;
+    wire [2:0]  d1_row  = d1_ly[10:0] / DIG_S;
+    wire        d1_pix;
+    digit5x7_pixel d1_digit_gen (
+        .val(dealer_card2),
+        .col(d1_col),
+        .row(d1_row),
+        .on (d1_pix)
+    );
+    wire d1_digit = d1_in && d1_pix;
 
-    // Player right card – "9"
-    wire signed [10:0] p1_lx = $signed({1'b0,x}) - $signed(P_X1 + INSET_X);
-    wire signed [10:0] p1_ly = $signed({1'b0,y}) - $signed(P_Y  + INSET_Y);
-    wire        p1_in = (p1_lx >= 0) && (p1_lx < 5*DIG_S) &&
-                        (p1_ly >= 0) && (p1_ly < 7*DIG_S);
-    wire [2:0]  p1_col = p1_lx[10:0] / DIG_S;
-    wire [2:0]  p1_row = p1_ly[10:0] / DIG_S;
-    wire [6:0]  p1_bits =
-        (p1_col==3'd0) ? 7'b0111000 :
-        (p1_col==3'd1) ? 7'b1000101 :
-        (p1_col==3'd2) ? 7'b1000101 :
-        (p1_col==3'd3) ? 7'b1000101 :
-        (p1_col==3'd4) ? 7'b0111110 :
-                        7'b0000000;
-    wire        p1_digit = p1_in && p1_bits[6 - p1_row];
+    // Dealer card 2 - bottom-right
+    wire signed [10:0] d1b_lx = $signed({1'b0,x}) -
+                                $signed(D_X1 + CARD_W - INSET_X_BR - 5*DIG_S);
+    wire signed [10:0] d1b_ly = $signed({1'b0,y}) -
+                                $signed(D_Y  + CARD_H - INSET_Y_BR - 7*DIG_S);
+    wire        d1b_in   = (d1b_lx >= 0) && (d1b_lx < 5*DIG_S) &&
+                           (d1b_ly >= 0) && (d1b_ly < 7*DIG_S);
+    wire [2:0]  d1b_col  = d1b_lx[10:0] / DIG_S;
+    wire [2:0]  d1b_row  = d1b_ly[10:0] / DIG_S;
+    wire        d1b_pix;
+    digit5x7_pixel d1b_digit_gen (
+        .val(dealer_card2),
+        .col(d1b_col),
+        .row(d1b_row),
+        .on (d1b_pix)
+    );
+    wire d1b_digit = d1b_in && d1b_pix;
+
+    // Dealer card 3 - TL + BR
+    wire signed [10:0] d2_lx = $signed({1'b0,x}) - $signed(D_X2 + INSET_X_TL);
+    wire signed [10:0] d2_ly = $signed({1'b0,y}) - $signed(D_Y   + INSET_Y_TL);
+    wire        d2_in   = (d2_lx >= 0) && (d2_lx < 5*DIG_S) &&
+                          (d2_ly >= 0) && (d2_ly < 7*DIG_S);
+    wire [2:0]  d2_col  = d2_lx[10:0] / DIG_S;
+    wire [2:0]  d2_row  = d2_ly[10:0] / DIG_S;
+    wire        d2_pix;
+    digit5x7_pixel d2_digit_gen (
+        .val(dealer_card3),
+        .col(d2_col),
+        .row(d2_row),
+        .on (d2_pix)
+    );
+    wire d2_digit = d2_in && d2_pix;
+
+    wire signed [10:0] d2b_lx = $signed({1'b0,x}) -
+                                $signed(D_X2 + CARD_W - INSET_X_BR - 5*DIG_S);
+    wire signed [10:0] d2b_ly = $signed({1'b0,y}) -
+                                $signed(D_Y  + CARD_H - INSET_Y_BR - 7*DIG_S);
+    wire        d2b_in   = (d2b_lx >= 0) && (d2b_lx < 5*DIG_S) &&
+                           (d2b_ly >= 0) && (d2b_ly < 7*DIG_S);
+    wire [2:0]  d2b_col  = d2b_lx[10:0] / DIG_S;
+    wire [2:0]  d2b_row  = d2b_ly[10:0] / DIG_S;
+    wire        d2b_pix;
+    digit5x7_pixel d2b_digit_gen (
+        .val(dealer_card3),
+        .col(d2b_col),
+        .row(d2b_row),
+        .on (d2b_pix)
+    );
+    wire d2b_digit = d2b_in && d2b_pix;
+
+    // Dealer card 4
+    wire signed [10:0] d3_lx = $signed({1'b0,x}) - $signed(D_X3 + INSET_X_TL);
+    wire signed [10:0] d3_ly = $signed({1'b0,y}) - $signed(D_Y   + INSET_Y_TL);
+    wire        d3_in   = (d3_lx >= 0) && (d3_lx < 5*DIG_S) &&
+                          (d3_ly >= 0) && (d3_ly < 7*DIG_S);
+    wire [2:0]  d3_col  = d3_lx[10:0] / DIG_S;
+    wire [2:0]  d3_row  = d3_ly[10:0] / DIG_S;
+    wire        d3_pix;
+    digit5x7_pixel d3_digit_gen (
+        .val(dealer_card4),
+        .col(d3_col),
+        .row(d3_row),
+        .on (d3_pix)
+    );
+    wire d3_digit = d3_in && d3_pix;
+
+    wire signed [10:0] d3b_lx = $signed({1'b0,x}) -
+                                $signed(D_X3 + CARD_W - INSET_X_BR - 5*DIG_S);
+    wire signed [10:0] d3b_ly = $signed({1'b0,y}) -
+                                $signed(D_Y  + CARD_H - INSET_Y_BR - 7*DIG_S);
+    wire        d3b_in   = (d3b_lx >= 0) && (d3b_lx < 5*DIG_S) &&
+                           (d3b_ly >= 0) && (d3b_ly < 7*DIG_S);
+    wire [2:0]  d3b_col  = d3b_lx[10:0] / DIG_S;
+    wire [2:0]  d3b_row  = d3b_ly[10:0] / DIG_S;
+    wire        d3b_pix;
+    digit5x7_pixel d3b_digit_gen (
+        .val(dealer_card4),
+        .col(d3b_col),
+        .row(d3b_row),
+        .on (d3b_pix)
+    );
+    wire d3b_digit = d3b_in && d3b_pix;
+
+    // Dealer card 5
+    wire signed [10:0] d4_lx = $signed({1'b0,x}) - $signed(D_X4 + INSET_X_TL);
+    wire signed [10:0] d4_ly = $signed({1'b0,y}) - $signed(D_Y   + INSET_Y_TL);
+    wire        d4_in   = (d4_lx >= 0) && (d4_lx < 5*DIG_S) &&
+                          (d4_ly >= 0) && (d4_ly < 7*DIG_S);
+    wire [2:0]  d4_col  = d4_lx[10:0] / DIG_S;
+    wire [2:0]  d4_row  = d4_ly[10:0] / DIG_S;
+    wire        d4_pix;
+    digit5x7_pixel d4_digit_gen (
+        .val(dealer_card5),
+        .col(d4_col),
+        .row(d4_row),
+        .on (d4_pix)
+    );
+    wire d4_digit = d4_in && d4_pix;
+
+    wire signed [10:0] d4b_lx = $signed({1'b0,x}) -
+                                $signed(D_X4 + CARD_W - INSET_X_BR - 5*DIG_S);
+    wire signed [10:0] d4b_ly = $signed({1'b0,y}) -
+                                $signed(D_Y  + CARD_H - INSET_Y_BR - 7*DIG_S);
+    wire        d4b_in   = (d4b_lx >= 0) && (d4b_lx < 5*DIG_S) &&
+                           (d4b_ly >= 0) && (d4b_ly < 7*DIG_S);
+    wire [2:0]  d4b_col  = d4b_lx[10:0] / DIG_S;
+    wire [2:0]  d4b_row  = d4b_ly[10:0] / DIG_S;
+    wire        d4b_pix;
+    digit5x7_pixel d4b_digit_gen (
+        .val(dealer_card5),
+        .col(d4b_col),
+        .row(d4b_row),
+        .on (d4b_pix)
+    );
+    wire d4b_digit = d4b_in && d4b_pix;
+
+    // Player card 1
+    wire signed [10:0] p0_lx = $signed({1'b0,x}) - $signed(P_X0 + INSET_X_TL);
+    wire signed [10:0] p0_ly = $signed({1'b0,y}) - $signed(P_Y   + INSET_Y_TL);
+    wire        p0_in   = (p0_lx >= 0) && (p0_lx < 5*DIG_S) &&
+                          (p0_ly >= 0) && (p0_ly < 7*DIG_S);
+    wire [2:0]  p0_col  = p0_lx[10:0] / DIG_S;
+    wire [2:0]  p0_row  = p0_ly[10:0] / DIG_S;
+    wire        p0_pix;
+    digit5x7_pixel p0_digit_gen (
+        .val(player_card1),
+        .col(p0_col),
+        .row(p0_row),
+        .on (p0_pix)
+    );
+    wire p0_digit = p0_in && p0_pix;
+
+    wire signed [10:0] p0b_lx = $signed({1'b0,x}) -
+                                $signed(P_X0 + CARD_W - INSET_X_BR - 5*DIG_S);
+    wire signed [10:0] p0b_ly = $signed({1'b0,y}) -
+                                $signed(P_Y  + CARD_H - INSET_Y_BR - 7*DIG_S);
+    wire        p0b_in   = (p0b_lx >= 0) && (p0b_lx < 5*DIG_S) &&
+                           (p0b_ly >= 0) && (p0b_ly < 7*DIG_S);
+    wire [2:0]  p0b_col  = p0b_lx[10:0] / DIG_S;
+    wire [2:0]  p0b_row  = p0b_ly[10:0] / DIG_S;
+    wire        p0b_pix;
+    digit5x7_pixel p0b_digit_gen (
+        .val(player_card1),
+        .col(p0b_col),
+        .row(p0b_row),
+        .on (p0b_pix)
+    );
+    wire p0b_digit = p0b_in && p0b_pix;
+
+    // Player card 2
+    wire signed [10:0] p1_lx = $signed({1'b0,x}) - $signed(P_X1 + INSET_X_TL);
+    wire signed [10:0] p1_ly = $signed({1'b0,y}) - $signed(P_Y   + INSET_Y_TL);
+    wire        p1_in   = (p1_lx >= 0) && (p1_lx < 5*DIG_S) &&
+                          (p1_ly >= 0) && (p1_ly < 7*DIG_S);
+    wire [2:0]  p1_col  = p1_lx[10:0] / DIG_S;
+    wire [2:0]  p1_row  = p1_ly[10:0] / DIG_S;
+    wire        p1_pix;
+    digit5x7_pixel p1_digit_gen (
+        .val(player_card2),
+        .col(p1_col),
+        .row(p1_row),
+        .on (p1_pix)
+    );
+    wire p1_digit = p1_in && p1_pix;
+
+    wire signed [10:0] p1b_lx = $signed({1'b0,x}) -
+                                $signed(P_X1 + CARD_W - INSET_X_BR - 5*DIG_S);
+    wire signed [10:0] p1b_ly = $signed({1'b0,y}) -
+                                $signed(P_Y  + CARD_H - INSET_Y_BR - 7*DIG_S);
+    wire        p1b_in   = (p1b_lx >= 0) && (p1b_lx < 5*DIG_S) &&
+                           (p1b_ly >= 0) && (p1b_ly < 7*DIG_S);
+    wire [2:0]  p1b_col  = p1b_lx[10:0] / DIG_S;
+    wire [2:0]  p1b_row  = p1b_ly[10:0] / DIG_S;
+    wire        p1b_pix;
+    digit5x7_pixel p1b_digit_gen (
+        .val(player_card2),
+        .col(p1b_col),
+        .row(p1b_row),
+        .on (p1b_pix)
+    );
+    wire p1b_digit = p1b_in && p1b_pix;
+
+    // Player card 3
+    wire signed [10:0] p2_lx = $signed({1'b0,x}) - $signed(P_X2 + INSET_X_TL);
+    wire signed [10:0] p2_ly = $signed({1'b0,y}) - $signed(P_Y   + INSET_Y_TL);
+    wire        p2_in   = (p2_lx >= 0) && (p2_lx < 5*DIG_S) &&
+                          (p2_ly >= 0) && (p2_ly < 7*DIG_S);
+    wire [2:0]  p2_col  = p2_lx[10:0] / DIG_S;
+    wire [2:0]  p2_row  = p2_ly[10:0] / DIG_S;
+    wire        p2_pix;
+    digit5x7_pixel p2_digit_gen (
+        .val(player_card3),
+        .col(p2_col),
+        .row(p2_row),
+        .on (p2_pix)
+    );
+    wire p2_digit = p2_in && p2_pix;
+
+    wire signed [10:0] p2b_lx = $signed({1'b0,x}) -
+                                $signed(P_X2 + CARD_W - INSET_X_BR - 5*DIG_S);
+    wire signed [10:0] p2b_ly = $signed({1'b0,y}) -
+                                $signed(P_Y  + CARD_H - INSET_Y_BR - 7*DIG_S);
+    wire        p2b_in   = (p2b_lx >= 0) && (p2b_lx < 5*DIG_S) &&
+                           (p2b_ly >= 0) && (p2b_ly < 7*DIG_S);
+    wire [2:0]  p2b_col  = p2b_lx[10:0] / DIG_S;
+    wire [2:0]  p2b_row  = p2b_ly[10:0] / DIG_S;
+    wire        p2b_pix;
+    digit5x7_pixel p2b_digit_gen (
+        .val(player_card3),
+        .col(p2b_col),
+        .row(p2b_row),
+        .on (p2b_pix)
+    );
+    wire p2b_digit = p2b_in && p2b_pix;
+
+    // Player card 4
+    wire signed [10:0] p3_lx = $signed({1'b0,x}) - $signed(P_X3 + INSET_X_TL);
+    wire signed [10:0] p3_ly = $signed({1'b0,y}) - $signed(P_Y   + INSET_Y_TL);
+    wire        p3_in   = (p3_lx >= 0) && (p3_lx < 5*DIG_S) &&
+                          (p3_ly >= 0) && (p3_ly < 7*DIG_S);
+    wire [2:0]  p3_col  = p3_lx[10:0] / DIG_S;
+    wire [2:0]  p3_row  = p3_ly[10:0] / DIG_S;
+    wire        p3_pix;
+    digit5x7_pixel p3_digit_gen (
+        .val(player_card4),
+        .col(p3_col),
+        .row(p3_row),
+        .on (p3_pix)
+    );
+    wire p3_digit = p3_in && p3_pix;
+
+    wire signed [10:0] p3b_lx = $signed({1'b0,x}) -
+                                $signed(P_X3 + CARD_W - INSET_X_BR - 5*DIG_S);
+    wire signed [10:0] p3b_ly = $signed({1'b0,y}) -
+                                $signed(P_Y  + CARD_H - INSET_Y_BR - 7*DIG_S);
+    wire        p3b_in   = (p3b_lx >= 0) && (p3b_lx < 5*DIG_S) &&
+                           (p3b_ly >= 0) && (p3b_ly < 7*DIG_S);
+    wire [2:0]  p3b_col  = p3b_lx[10:0] / DIG_S;
+    wire [2:0]  p3b_row  = p3b_ly[10:0] / DIG_S;
+    wire        p3b_pix;
+    digit5x7_pixel p3b_digit_gen (
+        .val(player_card4),
+        .col(p3b_col),
+        .row(p3b_row),
+        .on (p3b_pix)
+    );
+    wire p3b_digit = p3b_in && p3b_pix;
+
+    // Player card 5
+    wire signed [10:0] p4_lx = $signed({1'b0,x}) - $signed(P_X4 + INSET_X_TL);
+    wire signed [10:0] p4_ly = $signed({1'b0,y}) - $signed(P_Y   + INSET_Y_TL);
+    wire        p4_in   = (p4_lx >= 0) && (p4_lx < 5*DIG_S) &&
+                          (p4_ly >= 0) && (p4_ly < 7*DIG_S);
+    wire [2:0]  p4_col  = p4_lx[10:0] / DIG_S;
+    wire [2:0]  p4_row  = p4_ly[10:0] / DIG_S;
+    wire        p4_pix;
+    digit5x7_pixel p4_digit_gen (
+        .val(player_card5),
+        .col(p4_col),
+        .row(p4_row),
+        .on (p4_pix)
+    );
+    wire p4_digit = p4_in && p4_pix;
+
+    wire signed [10:0] p4b_lx = $signed({1'b0,x}) -
+                                $signed(P_X4 + CARD_W - INSET_X_BR - 5*DIG_S);
+    wire signed [10:0] p4b_ly = $signed({1'b0,y}) -
+                                $signed(P_Y  + CARD_H - INSET_Y_BR - 7*DIG_S);
+    wire        p4b_in   = (p4b_lx >= 0) && (p4b_lx < 5*DIG_S) &&
+                           (p4b_ly >= 0) && (p4b_ly < 7*DIG_S);
+    wire [2:0]  p4b_col  = p4b_lx[10:0] / DIG_S;
+    wire [2:0]  p4b_row  = p4b_ly[10:0] / DIG_S;
+    wire        p4b_pix;
+    digit5x7_pixel p4b_digit_gen (
+        .val(player_card5),
+        .col(p4b_col),
+        .row(p4b_row),
+        .on (p4b_pix)
+    );
+    wire p4b_digit = p4b_in && p4b_pix;
+
+    // -------------------------
+    // Diamond in card center
+    // -------------------------
+    // helper function: rotated diamond shaped hit
+    function diamond_hit;
+        input [9:0] px;
+        input [9:0] py;
+        input [9:0] cx;
+        input [9:0] cy;
+        integer dx, dy, ax, ay;
+        begin
+            dx = 8;   // half-width
+            dy = 11;  // half-height
+            ax = (px >= cx) ? (px - cx) : (cx - px);
+            ay = (py >= cy) ? (py - cy) : (cy - py);
+            // diamond |x|/dx + |y|/dy <= 1  -> avoid division:
+            diamond_hit = (ax*dy + ay*dx <= dx*dy);
+        end
+    endfunction
+
+    localparam D0_CX = D_X0 + CARD_W/2;
+    localparam D1_CX = D_X1 + CARD_W/2;
+    localparam D2_CX = D_X2 + CARD_W/2;
+    localparam D3_CX = D_X3 + CARD_W/2;
+    localparam D4_CX = D_X4 + CARD_W/2;
+    localparam P0_CX = P_X0 + CARD_W/2;
+    localparam P1_CX = P_X1 + CARD_W/2;
+    localparam P2_CX = P_X2 + CARD_W/2;
+    localparam P3_CX = P_X3 + CARD_W/2;
+    localparam P4_CX = P_X4 + CARD_W/2;
+
+    localparam D_CY = D_Y + CARD_H/2;
+    localparam P_CY = P_Y + CARD_H/2;
+
+    wire d0_diamond = diamond_hit(x, y, D0_CX[9:0], D_CY[9:0]) && d0_has;
+    wire d1_diamond = diamond_hit(x, y, D1_CX[9:0], D_CY[9:0]) && d1_has;
+    wire d2_diamond = diamond_hit(x, y, D2_CX[9:0], D_CY[9:0]) && d2_has;
+    wire d3_diamond = diamond_hit(x, y, D3_CX[9:0], D_CY[9:0]) && d3_has;
+    wire d4_diamond = diamond_hit(x, y, D4_CX[9:0], D_CY[9:0]) && d4_has;
+
+    wire p0_diamond = diamond_hit(x, y, P0_CX[9:0], P_CY[9:0]) && p0_has;
+    wire p1_diamond = diamond_hit(x, y, P1_CX[9:0], P_CY[9:0]) && p1_has;
+    wire p2_diamond = diamond_hit(x, y, P2_CX[9:0], P_CY[9:0]) && p2_has;
+    wire p3_diamond = diamond_hit(x, y, P3_CX[9:0], P_CY[9:0]) && p3_has;
+    wire p4_diamond = diamond_hit(x, y, P4_CX[9:0], P_CY[9:0]) && p4_has;
 
     // -------------------------
     // Painter's algorithm
@@ -588,30 +1000,56 @@ module blackjack_table (
         // background felt
         R = C0; G = G_DARK; B = C0;
 
-        // deck back layer (slight shadow - gray)
+        // deck back layer (shadow)
         if (deck_back) begin R = C1; G = C1; B = C1; end
 
         // deck white fill
         if (deck_fill) begin R = C2; G = C2; B = C2; end
 
-        // deck checker pattern (red) inside border
+        // deck checker pattern (red)
         if (deck_checker) begin R = 2'b11; G = 2'b00; B = 2'b00; end
 
-        // deck border (black)
+        // deck border
         if (deck_brd) begin R = C0; G = C0; B = C0; end
 
-        // cards fill
-        if (d0_fill || d1_fill || p0_fill || p1_fill) begin R = C2; G = C2; B = C2; end
-        // cards border
-        if (d0_brd  || d1_brd  || p0_brd  || p1_brd ) begin R = C0; G = C0; B = C0; end
+        // cards fill (only if card "exists")
+        if ((d0_fill && d0_has) || (d1_fill && d1_has) ||
+            (d2_fill && d2_has) || (d3_fill && d3_has) ||
+            (d4_fill && d4_has) ||
+            (p0_fill && p0_has) || (p1_fill && p1_has) ||
+            (p2_fill && p2_has) || (p3_fill && p3_has) ||
+            (p4_fill && p4_has)) begin
+            R = C2; G = C2; B = C2;
+        end
 
-        // digits on cards (black)
-        if (d0_digit || d1_digit || p0_digit || p1_digit) begin R = C0; G = C0; B = C0; end
+        // cards border
+        if ((d0_brd && d0_has) || (d1_brd && d1_has) ||
+            (d2_brd && d2_has) || (d3_brd && d3_has) ||
+            (d4_brd && d4_has) ||
+            (p0_brd && p0_has) || (p1_brd && p1_has) ||
+            (p2_brd && p2_has) || (p3_brd && p3_has) ||
+            (p4_brd && p4_has)) begin
+            R = C0; G = C0; B = C0;
+        end
+
+        // diamond symbol (red) – on top of card fill, under digits
+        if (d0_diamond || d1_diamond || d2_diamond || d3_diamond || d4_diamond ||
+            p0_diamond || p1_diamond || p2_diamond || p3_diamond || p4_diamond) begin
+            R = 2'b11; G = 2'b00; B = 2'b00;
+        end
+
+        // digits on cards (black) – both corners
+        if (d0_digit  || d1_digit  || d2_digit  || d3_digit  || d4_digit  ||
+            p0_digit  || p1_digit  || p2_digit  || p3_digit  || p4_digit  ||
+            d0b_digit || d1b_digit || d2b_digit || d3b_digit || d4b_digit ||
+            p0b_digit || p1b_digit || p2b_digit || p3b_digit || p4b_digit) begin
+            R = C0; G = C0; B = C0;
+        end
 
         // center "BLACKJACK" (light gray)
         if (blackjack_text) begin R = C1; G = C1; B = C1; end
 
-        // balance label overrides with bright red
+        // balance label (bright red)
         if (balance_text) begin R = 2'b11; G = 2'b00; B = 2'b00; end
 
         // outside active area
@@ -625,6 +1063,160 @@ module blackjack_table (
         end else begin
             vga_r <= R; vga_g <= G; vga_b <= B;
         end
+    end
+
+endmodule
+
+
+// ============================================================================
+// digit5x7_pixel
+// 5x7 bitmap digit / letter.
+// val = 0 or invalid -> no pixel.
+// 1 is drawn as 'A' (for Ace).
+// col: 0..4, row: 0..6.
+// ============================================================================
+module digit5x7_pixel (
+    input  wire [3:0] val,
+    input  wire [2:0] col,
+    input  wire [2:0] row,
+    output reg        on
+);
+    // each row is 5 bits: [4] = rightmost, [0] = leftmost
+    reg [4:0] r0, r1, r2, r3, r4, r5, r6;
+
+    always @* begin
+        // default: blank
+        r0 = 5'b00000;
+        r1 = 5'b00000;
+        r2 = 5'b00000;
+        r3 = 5'b00000;
+        r4 = 5'b00000;
+        r5 = 5'b00000;
+        r6 = 5'b00000;
+
+        case (val)
+            // 1 -> 'A'
+            4'd1: begin
+                r0 = 5'b00100;
+                r1 = 5'b01010;
+                r2 = 5'b10001;
+                r3 = 5'b11111;
+                r4 = 5'b10001;
+                r5 = 5'b10001;
+                r6 = 5'b00000;
+            end
+
+            // 2
+            4'd2: begin
+                r0 = 5'b01110;
+                r1 = 5'b10001;
+                r2 = 5'b00001;
+                r3 = 5'b00110;
+                r4 = 5'b01000;
+                r5 = 5'b11111;
+                r6 = 5'b00000;
+            end
+
+            // 3
+            4'd3: begin
+                r0 = 5'b01110;
+                r1 = 5'b10001;
+                r2 = 5'b00001;
+                r3 = 5'b00110;
+                r4 = 5'b00001;
+                r5 = 5'b10001;
+                r6 = 5'b01110;
+            end
+
+            // 4
+            4'd4: begin
+                r0 = 5'b00010;
+                r1 = 5'b00110;
+                r2 = 5'b01010;
+                r3 = 5'b10010;
+                r4 = 5'b11111;
+                r5 = 5'b00010;
+                r6 = 5'b00010;
+            end
+
+            // 5
+            4'd5: begin
+                r0 = 5'b11111;
+                r1 = 5'b10000;
+                r2 = 5'b11110;
+                r3 = 5'b00001;
+                r4 = 5'b00001;
+                r5 = 5'b10001;
+                r6 = 5'b01110;
+            end
+
+            // 6
+            4'd6: begin
+                r0 = 5'b01110;
+                r1 = 5'b10000;
+                r2 = 5'b11110;
+                r3 = 5'b10001;
+                r4 = 5'b10001;
+                r5 = 5'b10001;
+                r6 = 5'b01110;
+            end
+
+            // 7
+            4'd7: begin
+                r0 = 5'b11111;
+                r1 = 5'b00001;
+                r2 = 5'b00010;
+                r3 = 5'b00100;
+                r4 = 5'b01000;
+                r5 = 5'b01000;
+                r6 = 5'b01000;
+            end
+
+            // 8
+            4'd8: begin
+                r0 = 5'b01110;
+                r1 = 5'b10001;
+                r2 = 5'b10001;
+                r3 = 5'b01110;
+                r4 = 5'b10001;
+                r5 = 5'b10001;
+                r6 = 5'b01110;
+            end
+
+            // 9
+            4'd9: begin
+                r0 = 5'b01110;
+                r1 = 5'b10001;
+                r2 = 5'b10001;
+                r3 = 5'b01111;
+                r4 = 5'b00001;
+                r5 = 5'b00001;
+                r6 = 5'b01110;
+            end
+
+            default: begin
+                r0 = 5'b00000;
+                r1 = 5'b00000;
+                r2 = 5'b00000;
+                r3 = 5'b00000;
+                r4 = 5'b00000;
+                r5 = 5'b00000;
+                r6 = 5'b00000;
+            end
+        endcase
+
+        // select pixel
+        on = 1'b0;
+        case (row)
+            3'd0: on = r0[4 - col];
+            3'd1: on = r1[4 - col];
+            3'd2: on = r2[4 - col];
+            3'd3: on = r3[4 - col];
+            3'd4: on = r4[4 - col];
+            3'd5: on = r5[4 - col];
+            3'd6: on = r6[4 - col];
+            default: on = 1'b0;
+        endcase
     end
 
 endmodule
