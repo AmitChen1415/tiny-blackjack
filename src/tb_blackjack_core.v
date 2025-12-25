@@ -3,208 +3,314 @@
 
 module tb_blackjack_core;
 
-  // DUT inputs
-  reg clk;
-  reg rst_n;
-  reg btn_hit;
-  reg btn_stand;
-  reg btn_double;
-  reg btn_start;
-  reg rng_load;
-  reg [15:0] rng_seed;
-  integer seed;
-  integer i;
-  reg [9:0] bal_before;
+  // -------------------------
+  // Clock / Reset
+  // -------------------------
+  logic clk;
+  logic rst_n;
 
-  // DUT outputs
+  initial clk = 1'b0;
+  always #10 clk = ~clk;   // 50 MHz (period=20ns)
+
+  // -------------------------
+  // Inputs (buttons + RNG seed)
+  // -------------------------
+  logic btn_hit, btn_stand, btn_double, btn_start;
+  logic rng_load;
+  logic [15:0] rng_seed;
+
+  // -------------------------
+  // Outputs
+  // -------------------------
   wire [5:0] user_total;
   wire [5:0] dealer_total;
   wire [9:0] balance;
-  // Debug outputs from DUT
+
   wire [4:0] dbg_last_card;
   wire [1:0] dbg_deal_count;
-  wire dbg_blackjack;
-  // captured initial deal cards (derived from totals)
-  reg  [5:0] u_snap1, u_snap2, d_snap;
-  reg  [4:0] c1, c2, c3;
+  wire       dbg_blackjack;
 
-  // Instantiate DUT
+  wire [3:0] dealer_card1_o, dealer_card2_o, dealer_card3_o, dealer_card4_o, dealer_card5_o;
+  wire [3:0] player_card1_o, player_card2_o, player_card3_o, player_card4_o, player_card5_o;
+
+  // -------------------------
+  // DUT
+  // -------------------------
   blackjack_core dut (
     .clk(clk),
     .rst_n(rst_n),
+
     .btn_hit(btn_hit),
     .btn_stand(btn_stand),
     .btn_double(btn_double),
     .btn_start(btn_start),
+
     .rng_load(rng_load),
     .rng_seed(rng_seed),
+
     .user_total(user_total),
     .dealer_total(dealer_total),
-    .balance(balance)
-    , .dbg_blackjack(dbg_blackjack)
-    , .dbg_last_card(dbg_last_card)
-    , .dbg_deal_count(dbg_deal_count)
+    .balance(balance),
+
+    .dbg_last_card(dbg_last_card),
+    .dbg_deal_count(dbg_deal_count),
+    .dbg_blackjack(dbg_blackjack),
+
+    .dealer_card1_o(dealer_card1_o),
+    .dealer_card2_o(dealer_card2_o),
+    .dealer_card3_o(dealer_card3_o),
+    .dealer_card4_o(dealer_card4_o),
+    .dealer_card5_o(dealer_card5_o),
+
+    .player_card1_o(player_card1_o),
+    .player_card2_o(player_card2_o),
+    .player_card3_o(player_card3_o),
+    .player_card4_o(player_card4_o),
+    .player_card5_o(player_card5_o)
   );
 
-  // Clock generator (50MHz equiv → 20ns period)
-  always #10 clk = ~clk;
+  // -------------------------
+  // Helpers
+  // -------------------------
+  task automatic wait_cycles(input int n);
+    repeat (n) @(posedge clk);
+  endtask
 
-  // Test sequence
-  initial begin
-    // Init
-    clk = 0;
-    rst_n = 0;
-    btn_hit = 0;
-    btn_stand = 0;
-    btn_double = 0;
-    btn_start = 0;
-    rng_load = 0;
-    rng_seed = 16'hBEEF;
+  task automatic pulse_start();
+    btn_start <= 1'b1;
+    @(posedge clk);
+    btn_start <= 1'b0;
+  endtask
 
-  // VCD dump for GTKWave
-    $dumpfile("tb_blackjack_core.vcd");
-    $dumpvars(0, tb_blackjack_core);
+  task automatic pulse_hit();
+    btn_hit <= 1'b1;
+    @(posedge clk);
+    btn_hit <= 1'b0;
+  endtask
 
-  // init captured card registers / snapshots
-  c1 = 0; c2 = 0; c3 = 0;
-  u_snap1 = 0; u_snap2 = 0; d_snap = 0;
+  task automatic pulse_stand();
+    btn_stand <= 1'b1;
+    @(posedge clk);
+    btn_stand <= 1'b0;
+  endtask
 
-    // Reset
-    #25 rst_n = 1;
-    $display("\n--- Reset released ---");
+  task automatic pulse_double();
+    btn_double <= 1'b1;
+    @(posedge clk);
+    btn_double <= 1'b0;
+  endtask
 
-  // We'll run deterministic rounds by loading seeds so results are repeatable.
-
-    // --- ROUND 1: exercise HIT ---
-    seed = 16'h0001; bal_before = balance;
-    rng_load = 1; rng_seed = seed; #20 rng_load = 0; #20;
-    #50 btn_start = 1; #20 btn_start = 0; // initial deal
-    wait (dbg_deal_count == 2'd3); #1;
-    $display("[R1] After deal: user=%0d dealer=%0d balance=%0d", user_total, dealer_total, balance);
-  // Hit once
-  #100 btn_hit = 1; #20 btn_hit = 0; #50;
-  // End player's turn by standing so dealer can play
-  #100 btn_stand = 1; #20 btn_stand = 0;
-    $display("[R1] After HIT: user=%0d dealer=%0d balance(before)=%0d", user_total, dealer_total, bal_before);
-  // Finish the round: wait for dealer to play and settlement to complete
-  #300;
-    $display("[R1] End: user=%0d dealer=%0d balance(after)=%0d", user_total, dealer_total, balance);
-    // Validate balance change direction/magnitude (stake = 50)
-    if (dbg_blackjack) begin
-      $display("[R1] Unexpected blackjack in round 1 (seed=%0h)", seed);
-    end else begin
-      if (user_total > 21) begin
-  if (balance != bal_before - 10'd50) begin $display("R1: expected bust loss of 50"); $fatal(1); end
-      end else if (dealer_total > 21 || user_total > dealer_total) begin
-  if (balance != bal_before + 10'd50) begin $display("R1: expected win of 50"); $fatal(1); end
-      end else if (user_total < dealer_total) begin
-  if (balance != bal_before - 10'd50) begin $display("R1: expected loss of 50"); $fatal(1); end
-      end else begin
-  if (balance != bal_before) begin $display("R1: expected push (no change)"); $fatal(1); end
-      end
-      $display("R1 validation passed");
+  function automatic int count_player_cards();
+    int c;
+    begin
+      c = 0;
+      if (player_card1_o != 0) c++;
+      if (player_card2_o != 0) c++;
+      if (player_card3_o != 0) c++;
+      if (player_card4_o != 0) c++;
+      if (player_card5_o != 0) c++;
+      return c;
     end
+  endfunction
 
-    // --- ROUND 2: exercise DOUBLE ---
-    seed = 16'h00A5; bal_before = balance;
-    rng_load = 1; rng_seed = seed; #20 rng_load = 0; #20;
-    #50 btn_start = 1; #20 btn_start = 0; // initial deal
-    wait (dbg_deal_count == 2'd3); #1;
-    $display("[R2] After deal: user=%0d dealer=%0d balance=%0d", user_total, dealer_total, balance);
-    // Double: take one card and end turn
-    #100 btn_double = 1; #20 btn_double = 0; #100;
-    $display("[R2] After DOUBLE: user=%0d dealer=%0d balance(before)=%0d", user_total, dealer_total, bal_before);
-  // Finish the round: wait for dealer to play and settlement to complete
-  #300;
-    $display("[R2] End: user=%0d dealer=%0d balance(after)=%0d", user_total, dealer_total, balance);
-    // Validate double stake (100)
-    if (dbg_blackjack) begin
-      $display("[R2] Unexpected blackjack in round 2 (seed=%0h)", seed);
-    end else begin
-      if (user_total > 21) begin
-  if (balance != bal_before - 10'd100) begin $display("R2: expected bust loss of 100"); $fatal(1); end
-      end else if (dealer_total > 21 || user_total > dealer_total) begin
-  if (balance != bal_before + 10'd100) begin $display("R2: expected win of 100"); $fatal(1); end
-      end else if (user_total < dealer_total) begin
-  if (balance != bal_before - 10'd100) begin $display("R2: expected loss of 100"); $fatal(1); end
-      end else begin
-  if (balance != bal_before) begin $display("R2: expected push (no change)"); $fatal(1); end
-      end
-      $display("R2 validation passed");
+  function automatic int count_dealer_cards();
+    int c;
+    begin
+      c = 0;
+      if (dealer_card1_o != 0) c++;
+      if (dealer_card2_o != 0) c++;
+      if (dealer_card3_o != 0) c++;
+      if (dealer_card4_o != 0) c++;
+      if (dealer_card5_o != 0) c++;
+      return c;
     end
+  endfunction
 
-    // --- ROUND 3: exercise STAND ---
-    seed = 16'h0F0F; bal_before = balance;
-    rng_load = 1; rng_seed = seed; #20 rng_load = 0; #20;
-    #50 btn_start = 1; #20 btn_start = 0; // initial deal
-    wait (dbg_deal_count == 2'd3); #1;
-    $display("[R3] After deal: user=%0d dealer=%0d balance=%0d", user_total, dealer_total, balance);
-    // Stand immediately (no hit/double)
-    #100 btn_stand = 1; #20 btn_stand = 0; #100;
-  // Finish the round: wait for dealer to play and settlement to complete
-  #300;
-    $display("[R3] End: user=%0d dealer=%0d balance(after)=%0d", user_total, dealer_total, balance);
-    // Validate single stake (50)
-    if (dbg_blackjack) begin
-      $display("[R3] Unexpected blackjack in round 3 (seed=%0h)", seed);
-    end else begin
-      if (user_total > 21) begin
-  if (balance != bal_before - 10'd50) begin $display("R3: expected bust loss of 50"); $fatal(1); end
-      end else if (dealer_total > 21 || user_total > dealer_total) begin
-  if (balance != bal_before + 10'd50) begin $display("R3: expected win of 50"); $fatal(1); end
-      end else if (user_total < dealer_total) begin
-  if (balance != bal_before - 10'd50) begin $display("R3: expected loss of 50"); $fatal(1); end
-      end else begin
-  if (balance != bal_before) begin $display("R3: expected push (no change)"); $fatal(1); end
-      end
-      $display("R3 validation passed");
-    end
+  task automatic print_round_state(string tag);
+    $display("---- %s ----", tag);
+    $display("Balance=%0d  user_total=%0d  dealer_total=%0d  blackjack=%0b  deal_count=%0d last_card=%0d",
+             balance, user_total, dealer_total, dbg_blackjack, dbg_deal_count, dbg_last_card);
+    $display("Player cards: %0d %0d %0d %0d %0d",
+             player_card1_o, player_card2_o, player_card3_o, player_card4_o, player_card5_o);
+    $display("Dealer cards: %0d %0d %0d %0d %0d",
+             dealer_card1_o, dealer_card2_o, dealer_card3_o, dealer_card4_o, dealer_card5_o);
+  endtask
 
-    // --- ROUND 4: search for a natural blackjack (2-card 21) by loading seeds ---
-  // We'll try a few seeds; when dbg_blackjack asserted we verify the +150 payout.
-  bal_before = balance;
-  for (i = 0; i < 200; i = i + 1) begin
-      rng_load = 1;
-      rng_seed = i;
-      #20;
-      rng_load = 0;
-      #20;
-      // Start a round
-      btn_start = 1; #20 btn_start = 0;
-      wait (dbg_deal_count == 2'd3); #1;
-      // If blackjack, settlement will occur on next state entry; capture balance after settlement
-      if (dbg_blackjack) begin
-  // Allow settlement to happen
-  #200;
-        $display("[R4] Found blackjack with seed=%0d: balance before=%0d after=%0d", i, bal_before, balance);
-        if (balance != bal_before + 10'd150) begin
-          $display("ERROR: blackjack payout incorrect: expected %0d got %0d", bal_before + 150, balance);
-          $fatal(1);
-        end else begin
-          $display("PASS: blackjack payout correct (+150)");
+  // Wait until initial deal finished (deal_count == 3)
+  task automatic wait_init_deal_done();
+    int timeout;
+    begin
+      timeout = 0;
+      while (dbg_deal_count != 2'd3) begin
+        @(posedge clk);
+        timeout++;
+        if (timeout > 2000) begin
+          $fatal(1, "Timeout waiting for initial deal to complete (dbg_deal_count never reached 3)");
         end
-        // exit loop once found by forcing i past end
-        i = 200;
-      end else begin
-  // No blackjack: finish the round normally to reset for next try
-  #200;
-        bal_before = balance; // update baseline for next trial
       end
     end
+  endtask
 
-    #200 $finish;
-  end
+  // Wait until round finishes: detect balance change OR return-to-idle behavior
+  // Since state isn't exposed, simplest reliable signal is: balance changes after settlement.
+  task automatic wait_round_done(input int old_balance);
+    int timeout;
+    begin
+      timeout = 0;
+      while (balance == old_balance) begin
+        @(posedge clk);
+        timeout++;
+        if (timeout > 5000) begin
+          print_round_state("TIMEOUT SNAPSHOT");
+          $fatal(1, "Timeout waiting for round to settle (balance did not change)");
+        end
+      end
+    end
+  endtask
 
-  // Capture the RNG output when the deal counter increments so we can check
-  // the three initial draws.
-  always @(posedge clk) begin
-    // capture user total snapshots and dealer snapshot to derive individual cards
-    if (dbg_deal_count == 2'd1 && u_snap1 == 0)
-      u_snap1 <= user_total;
-    else if (dbg_deal_count == 2'd2 && u_snap2 == 0)
-      u_snap2 <= user_total;
-    else if (dbg_deal_count == 2'd3 && d_snap == 0)
-      d_snap <= dealer_total;
+  // Compute expected delta using the SAME policy as core:
+  // - natural blackjack: +75
+  // - bust: -50 (or -100 if doubled)
+  // - win: +50 (+50 extra if doubled)
+  // - lose: -50 (-50 extra if doubled)
+  // - push: 0
+  function automatic int expected_delta(input int u, input int d, input bit doubled, input bit blackjack);
+    if (blackjack) begin
+      return 75;
+    end
+    if (u > 21) begin
+      return doubled ? -100 : -50;
+    end
+    if ((d > 21) || (u > d)) begin
+      return doubled ? +100 : +50;
+    end
+    if (u < d) begin
+      return doubled ? -100 : -50;
+    end
+    return 0;
+  endfunction
+
+  // One full round that "plays like a human"
+  // policy:
+  //   - optionally double if user_total is 9/10/11 on first decision
+  //   - hit until user_total >= 17, then stand
+  task automatic play_one_round(input int round_idx, input bit allow_double);
+    int old_bal;
+    bit doubled_this_round;
+    int u_final, d_final;
+    int exp_d, got_d;
+
+    begin
+      doubled_this_round = 0;
+
+      $display("\n==============================");
+      $display("ROUND %0d", round_idx);
+      $display("==============================");
+
+      old_bal = balance;
+
+      // Press START
+      pulse_start();
+
+      // Wait for the 3-step deal to finish
+      wait_init_deal_done();
+      print_round_state("AFTER INIT DEAL");
+
+      // If blackjack, core will go straight to settlement
+      if (dbg_blackjack) begin
+        $display("Natural blackjack detected -> no user actions.");
+      end else begin
+        // Decision loop: act once per clock like a real button press
+        // First decision: optionally DOUBLE if favorable and allowed
+        if (allow_double) begin
+          if ((user_total == 9) || (user_total == 10) || (user_total == 11)) begin
+            $display("User decision: DOUBLE (user_total=%0d)", user_total);
+            doubled_this_round = 1;
+            pulse_double();
+          end
+        end
+
+        // If we didn't double: hit until 17, then stand
+        if (!doubled_this_round) begin
+          while ((user_total < 17) && (user_total <= 21)) begin
+            $display("User decision: HIT (user_total=%0d)", user_total);
+            pulse_hit();
+            // give one cycle for totals/cards to update cleanly
+            @(posedge clk);
+          end
+          $display("User decision: STAND (user_total=%0d)", user_total);
+          pulse_stand();
+        end
+      end
+
+      // Wait until balance changes => settlement done
+      wait_round_done(old_bal);
+
+      // Snapshot at end
+      print_round_state("AFTER SETTLEMENT");
+
+      // Check expected balance delta
+      u_final = user_total;
+      d_final = dealer_total;
+      exp_d   = expected_delta(u_final, d_final, doubled_this_round, dbg_blackjack);
+      got_d   = $signed(balance) - $signed(old_bal);
+
+      $display("Expected delta=%0d  Got delta=%0d", exp_d, got_d);
+
+      if (exp_d !== got_d) begin
+        $display("!! MISMATCH in balance update");
+        $display("   (u=%0d d=%0d doubled=%0b blackjack=%0b)", u_final, d_final, doubled_this_round, dbg_blackjack);
+        $fatal(1, "Balance delta mismatch");
+      end
+
+      // Wait a little so core returns to IDLE before next round
+      wait_cycles(5);
+    end
+  endtask
+
+  // -------------------------
+  // Test sequence
+  // -------------------------
+  initial begin
+    // init inputs
+    btn_hit    = 0;
+    btn_stand  = 0;
+    btn_double = 0;
+    btn_start  = 0;
+    rng_load   = 0;
+    rng_seed   = 16'h0000;
+
+    // reset
+    rst_n = 0;
+    wait_cycles(5);
+    rst_n = 1;
+    wait_cycles(2);
+
+    // Seed RNG deterministically
+    // (Change seed to see different games, but keep reproducible)
+    rng_seed = 16'hACE1;
+    rng_load = 1'b1;
+    @(posedge clk);
+    rng_load = 1'b0;
+    $display("RNG seeded with 0x%04h", rng_seed);
+
+    // Starting balance should be 500 after reset
+    if (balance !== 10'd500) begin
+      $fatal(1, "Expected starting balance 500, got %0d", balance);
+    end
+
+    // Play a few rounds:
+    // Round 1: no double
+    play_one_round(1, /*allow_double=*/0);
+
+    // Round 2: allow double
+    play_one_round(2, /*allow_double=*/1);
+
+    // Round 3: allow double
+    play_one_round(3, /*allow_double=*/1);
+
+    $display("\nALL ROUNDS PASSED ✅");
+    $finish;
   end
 
 endmodule

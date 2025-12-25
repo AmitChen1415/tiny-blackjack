@@ -37,45 +37,38 @@ module tt_um_AmitChen1415 (
   wire [3:0] player_card4;
   wire [3:0] player_card5; 
 
-  assign dealer_card1 = 4'd1;
-  assign dealer_card2 = 4'd1; 
-  assign dealer_card3 = 4'd3;
-  assign dealer_card4 = 4'd9;
-  assign dealer_card5 = 4'd5;
-  assign player_card1 = 4'd2;
-  assign player_card2 = 4'd3;
-  assign player_card3 = 4'd4;
-  assign player_card4 = 4'd1;
-  assign player_card5 = 4'd0;
-  
-  
-//Instantiate the table renderer
-blackjack_table gfx (
-   .clk_25MHz(clk_pix),  // your 25 MHz pixel clock
-   .rst_n(rst_pix_n),
-   .vga_hsync(hsync),
-   .vga_vsync(vsync),
-   .vga_r(red),
-   .vga_g(green),
-   .vga_b(blue),
-   .dealer_card1(dealer_card1),
-   .dealer_card2(dealer_card2),
-   .dealer_card3(dealer_card3),
-   .dealer_card4(dealer_card4),
-   .dealer_card5(dealer_card5),
-   .player_card1(player_card1),
-   .player_card2(player_card2),
-   .player_card3(player_card3),
-   .player_card4(player_card4),
-   .player_card5(player_card5)
-);
-
-  // Buttons
+    // Buttons
   wire start, hit, stand, double_bet;
   assign hit        = ui_in[0];
   assign stand      = ui_in[1];
   assign double_bet = ui_in[2];
   assign start      = ui_in[4];
+
+  wire [4:0] next_card_val_o;
+  wire [9:0] user_balance;
+  
+//Instantiate the table renderer
+blackjack_table gfx (
+   .clk_25MHz    (clk_pix     ),  // your 25 MHz pixel clock
+   .rst_n        (rst_pix_n   ),
+   .vga_hsync    (hsync       ),
+   .vga_vsync    (vsync       ),
+   .vga_r        (red         ),
+   .vga_g        (green       ),
+   .vga_b        (blue        ),
+   .dealer_card1 (dealer_card1),
+   .dealer_card2 (dealer_card2),
+   .dealer_card3 (dealer_card3),
+   .dealer_card4 (dealer_card4),
+   .dealer_card5 (dealer_card5),
+   .player_card1 (player_card1),
+   .player_card2 (player_card2),
+   .player_card3 (player_card3),
+   .player_card4 (player_card4),
+   .player_card5 (player_card5),
+   .user_balance (user_balance )
+);
+
 
   // Outputs mapping (still mapped to VGA pins just for testing visuals)
   assign uo_out[0] = red[1];
@@ -89,36 +82,47 @@ blackjack_table gfx (
   
   // Connect to Blackjack core
   blackjack_core game_inst (
-    .clk        (clk),
-    .rst_n      (clk_in_rst_n_sync),
-    .btn_hit    (hit),
-    .btn_stand  (stand),
-    .btn_double (double_bet),
-    .btn_start  (start)
+    .clk            (clk              ),
+    .rst_n          (clk_in_rst_n_sync),
+    .btn_hit        (hit              ),
+    .btn_stand      (stand            ),
+    .btn_double     (double_bet       ),
+    .btn_start      (start            ),
+    .balance        (user_balance     ),
+    .dealer_card1_o (dealer_card1     ),
+    .dealer_card2_o (dealer_card2     ),
+    .dealer_card3_o (dealer_card3     ),
+    .dealer_card4_o (dealer_card4     ),
+    .dealer_card5_o (dealer_card5     ),
+    .player_card1_o (player_card1     ),  
+    .player_card2_o (player_card2     ),  
+    .player_card3_o (player_card3     ),
+    .player_card4_o (player_card4     ),
+    .player_card5_o (player_card5     )
     // RNG load/seed left unconnected here — can tie off or expose via uio if needed
   );
 
   // Power-up synchronizer
   pwrup_synchronizer pwrup_sync_inst (
-      .clk_in            (clk),
-      .rst_n             (rst_n),
+      .clk_in            (clk              ),
+      .rst_n             (rst_n            ),
       .clk_in_rst_n_sync (clk_in_rst_n_sync)
   );
 
   // //PLL clock for table 
 
-  // // // // --- Pixel clock from PLL (25.175 MHz) ---
-  // wire clk_pix;          // 25.175 MHz
-  // wire pll_locked;
+  // // // --- Pixel clock from PLL (25.175 MHz) ---
+  wire clk_pix;          // 25.175 MHz
+  wire pll_locked;
 
-  // vga_pll u_pll (
-  //   .inclk0 (clk),       // 50 MHz board clock
-  //   .c0     (clk_pix),   // 25.175 MHz
-  //   .locked (pll_locked)
-  // );
+  vga_pll u_pll (
+    .inclk0 (clk),       // 50 MHz board clock
+    .c0     (clk_pix),   // 25.175 MHz
+    .locked (pll_locked)
+  );
 
-//assign clk_pix = clk; // Temporary: bypass PLL for simulation
+
 // Hold the video path in reset until the PLL locks
-//wire rst_pix_n = rst_n & pll_locked;
+wire rst_pix_n = rst_n & pll_locked;
 
 endmodule

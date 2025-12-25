@@ -31,6 +31,8 @@ module blackjack_table (
     input  wire [3:0]  player_card4,
     input  wire [3:0]  player_card5,
 
+    input  wire [9:0]  user_balance,
+
     output wire        vga_hsync,
     output wire        vga_vsync,
     output reg  [1:0]  vga_r,
@@ -536,73 +538,24 @@ module blackjack_table (
                            7'b0000000;
     wire        b_dol = bDol_in && bDol_bits[6 - bDol_row];
 
-    // Digits of "1100"
-    // '1' at BAL_X0 + 10*6*BAL_S
-    wire signed [10:0] bN0_lx = $signed({1'b0,x}) - $signed(BAL_X0 + 10*6*BAL_S);
-    wire signed [10:0] bN0_ly = $signed({1'b0,y}) - $signed(BAL_Y0);
-    wire        bN0_in  = (bN0_lx >= 0) && (bN0_lx < 5*BAL_S) &&
-                          (bN0_ly >= 0) && (bN0_ly < 7*BAL_S);
-    wire [2:0]  bN0_col = bN0_lx[10:0] / BAL_S;
-    wire [2:0]  bN0_row = bN0_ly[10:0] / BAL_S;
-    wire [6:0]  bN0_bits =
-        (bN0_col==3'd0) ? 7'b0000000 :
-        (bN0_col==3'd1) ? 7'b0100001 :
-        (bN0_col==3'd2) ? 7'b1111111 :
-        (bN0_col==3'd3) ? 7'b0000001 :
-        (bN0_col==3'd4) ? 7'b0000000 :
-                          7'b0000000;
-    wire        b_n0 = bN0_in && bN0_bits[6 - bN0_row];
+    // Dynamic digits for BALANCE based on user_balance
+    wire balance_digits_on;
+    
+    balance_digits #(
+        .BAL_S  ( BAL_S  ),
+        .BAL_X0 ( BAL_X0 ),
+        .BAL_Y0 ( BAL_Y0 )
+    )
+    bal_digits_inst (
+        .x       ( x                ),
+        .y       ( y                ),
+        .balance ( user_balance     ),
+        .on      ( balance_digits_on)
+    );
 
-    // second '1' at BAL_X0 + 11*6*BAL_S
-    wire signed [10:0] bN1_lx = $signed({1'b0,x}) - $signed(BAL_X0 + 11*6*BAL_S);
-    wire signed [10:0] bN1_ly = $signed({1'b0,y}) - $signed(BAL_Y0);
-    wire        bN1_in  = (bN1_lx >= 0) && (bN1_lx < 5*BAL_S) &&
-                          (bN1_ly >= 0) && (bN1_ly < 7*BAL_S);
-    wire [2:0]  bN1_col = bN1_lx[10:0] / BAL_S;
-    wire [2:0]  bN1_row = bN1_ly[10:0] / BAL_S;
-    wire [6:0]  bN1_bits =
-        (bN1_col==3'd0) ? 7'b0000000 :
-        (bN1_col==3'd1) ? 7'b0100001 :
-        (bN1_col==3'd2) ? 7'b1111111 :
-        (bN1_col==3'd3) ? 7'b0000001 :
-        (bN1_col==3'd4) ? 7'b0000000 :
-                          7'b0000000;
-    wire        b_n1 = bN1_in && bN1_bits[6 - bN1_row];
-
-    // '0' at BAL_X0 + 12*6*BAL_S
-    wire signed [10:0] bN2_lx = $signed({1'b0,x}) - $signed(BAL_X0 + 12*6*BAL_S);
-    wire signed [10:0] bN2_ly = $signed({1'b0,y}) - $signed(BAL_Y0);
-    wire        bN2_in  = (bN2_lx >= 0) && (bN2_lx < 5*BAL_S) &&
-                          (bN2_ly >= 0) && (bN2_ly < 7*BAL_S);
-    wire [2:0]  bN2_col = bN2_lx[10:0] / BAL_S;
-    wire [2:0]  bN2_row = bN2_ly[10:0] / BAL_S;
-    wire [6:0]  bN2_bits =
-        (bN2_col==3'd0) ? 7'b0111110 :
-        (bN2_col==3'd1) ? 7'b1000001 :
-        (bN2_col==3'd2) ? 7'b1000001 :
-        (bN2_col==3'd3) ? 7'b1000001 :
-        (bN2_col==3'd4) ? 7'b0111110 :
-                          7'b0000000;
-    wire        b_n2 = bN2_in && bN2_bits[6 - bN2_row];
-
-    // second '0' at BAL_X0 + 13*6*BAL_S
-    wire signed [10:0] bN3_lx = $signed({1'b0,x}) - $signed(BAL_X0 + 13*6*BAL_S);
-    wire signed [10:0] bN3_ly = $signed({1'b0,y}) - $signed(BAL_Y0);
-    wire        bN3_in  = (bN3_lx >= 0) && (bN3_lx < 5*BAL_S) &&
-                          (bN3_ly >= 0) && (bN3_ly < 7*BAL_S);
-    wire [2:0]  bN3_col = bN3_lx[10:0] / BAL_S;
-    wire [2:0]  bN3_row = bN3_ly[10:0] / BAL_S;
-    wire [6:0]  bN3_bits =
-        (bN3_col==3'd0) ? 7'b0111110 :
-        (bN3_col==3'd1) ? 7'b1000001 :
-        (bN3_col==3'd2) ? 7'b1000001 :
-        (bN3_col==3'd3) ? 7'b1000001 :
-        (bN3_col==3'd4) ? 7'b0111110 :
-                          7'b0000000;
-    wire        b_n3 = bN3_in && bN3_bits[6 - bN3_row];
-
-    wire balance_text = b_B | b_A | b_L | b_A2 | b_N | b_C | b_E |
-                        b_colon | b_dol | b_n0 | b_n1 | b_n2 | b_n3;
+// Keep the existing B A L A N C E : $
+wire balance_text = b_B | b_A | b_L | b_A2 | b_N | b_C | b_E |
+                    b_colon | b_dol | balance_digits_on;
 
     // -------------------------
     // Digits inside each card: top-left
@@ -1068,155 +1021,4 @@ module blackjack_table (
 endmodule
 
 
-// ============================================================================
-// digit5x7_pixel
-// 5x7 bitmap digit / letter.
-// val = 0 or invalid -> no pixel.
-// 1 is drawn as 'A' (for Ace).
-// col: 0..4, row: 0..6.
-// ============================================================================
-module digit5x7_pixel (
-    input  wire [3:0] val,
-    input  wire [2:0] col,
-    input  wire [2:0] row,
-    output reg        on
-);
-    // each row is 5 bits: [4] = rightmost, [0] = leftmost
-    reg [4:0] r0, r1, r2, r3, r4, r5, r6;
 
-    always @* begin
-        // default: blank
-        r0 = 5'b00000;
-        r1 = 5'b00000;
-        r2 = 5'b00000;
-        r3 = 5'b00000;
-        r4 = 5'b00000;
-        r5 = 5'b00000;
-        r6 = 5'b00000;
-
-        case (val)
-            // 1 -> 'A'
-            4'd1: begin
-                r0 = 5'b00100;
-                r1 = 5'b01010;
-                r2 = 5'b10001;
-                r3 = 5'b11111;
-                r4 = 5'b10001;
-                r5 = 5'b10001;
-                r6 = 5'b00000;
-            end
-
-            // 2
-            4'd2: begin
-                r0 = 5'b01110;
-                r1 = 5'b10001;
-                r2 = 5'b00001;
-                r3 = 5'b00110;
-                r4 = 5'b01000;
-                r5 = 5'b11111;
-                r6 = 5'b00000;
-            end
-
-            // 3
-            4'd3: begin
-                r0 = 5'b01110;
-                r1 = 5'b10001;
-                r2 = 5'b00001;
-                r3 = 5'b00110;
-                r4 = 5'b00001;
-                r5 = 5'b10001;
-                r6 = 5'b01110;
-            end
-
-            // 4
-            4'd4: begin
-                r0 = 5'b00010;
-                r1 = 5'b00110;
-                r2 = 5'b01010;
-                r3 = 5'b10010;
-                r4 = 5'b11111;
-                r5 = 5'b00010;
-                r6 = 5'b00010;
-            end
-
-            // 5
-            4'd5: begin
-                r0 = 5'b11111;
-                r1 = 5'b10000;
-                r2 = 5'b11110;
-                r3 = 5'b00001;
-                r4 = 5'b00001;
-                r5 = 5'b10001;
-                r6 = 5'b01110;
-            end
-
-            // 6
-            4'd6: begin
-                r0 = 5'b01110;
-                r1 = 5'b10000;
-                r2 = 5'b11110;
-                r3 = 5'b10001;
-                r4 = 5'b10001;
-                r5 = 5'b10001;
-                r6 = 5'b01110;
-            end
-
-            // 7
-            4'd7: begin
-                r0 = 5'b11111;
-                r1 = 5'b00001;
-                r2 = 5'b00010;
-                r3 = 5'b00100;
-                r4 = 5'b01000;
-                r5 = 5'b01000;
-                r6 = 5'b01000;
-            end
-
-            // 8
-            4'd8: begin
-                r0 = 5'b01110;
-                r1 = 5'b10001;
-                r2 = 5'b10001;
-                r3 = 5'b01110;
-                r4 = 5'b10001;
-                r5 = 5'b10001;
-                r6 = 5'b01110;
-            end
-
-            // 9
-            4'd9: begin
-                r0 = 5'b01110;
-                r1 = 5'b10001;
-                r2 = 5'b10001;
-                r3 = 5'b01111;
-                r4 = 5'b00001;
-                r5 = 5'b00001;
-                r6 = 5'b01110;
-            end
-
-            default: begin
-                r0 = 5'b00000;
-                r1 = 5'b00000;
-                r2 = 5'b00000;
-                r3 = 5'b00000;
-                r4 = 5'b00000;
-                r5 = 5'b00000;
-                r6 = 5'b00000;
-            end
-        endcase
-
-        // select pixel
-        on = 1'b0;
-        case (row)
-            3'd0: on = r0[4 - col];
-            3'd1: on = r1[4 - col];
-            3'd2: on = r2[4 - col];
-            3'd3: on = r3[4 - col];
-            3'd4: on = r4[4 - col];
-            3'd5: on = r5[4 - col];
-            3'd6: on = r6[4 - col];
-            default: on = 1'b0;
-        endcase
-    end
-
-endmodule

@@ -8,7 +8,7 @@ module rng_card (
   input  wire        rst_n,    // Active-low reset
   input  wire        load,     // Load custom seed
   input  wire [15:0] seed,     // Seed value
-  output wire [4:0]  card_val  // Card value (2–11)
+  output wire [3:0]  card_val  // Card value (2–11)
 );
 
   wire [15:0] rnd;
