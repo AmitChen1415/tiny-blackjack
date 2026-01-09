@@ -1,268 +1,423 @@
 `default_nettype none
 `timescale 1ns/1ps
 
-
 module blackjack_core (
-    input  wire       clk,          // System clock (e.g., 25MHz from PLL)
-    input  wire       rst_n,        // Active-low reset
+    input  wire        clk,
+    input  wire        rst_n,
 
-    // Player buttons
-    input  wire       btn_hit,      // Player requests an extra card
-    input  wire       btn_stand,    // Player ends their turn
-    input  wire       btn_double,   // Player doubles bet (and takes one card only)
-    input  wire       btn_start,    // Start round
+    input  wire        btn_hit,
+    input  wire        btn_stand,
+    input  wire        btn_double,
+    input  wire        btn_start,
 
-    // RNG seeding
-    input  wire        rng_load,     // Load new seed into RNG
-    input  wire [15:0] rng_seed,    // Seed value for RNG
+    input  wire        rng_load,
+    input  wire [15:0] rng_seed,
 
-    // Game outputs
-    output reg  [5:0] user_total,   // Player's current card total
-    output reg  [5:0] dealer_total, // Dealer's current card total
-    output reg  [9:0] balance,       // Player's balance (chips)
-    output wire [4:0] dbg_last_card,
-    output wire [1:0] dbg_deal_count,
-    output wire       dbg_blackjack,
-    
-    output reg [3:0] dealer_card1_o,
-    output reg [3:0] dealer_card2_o,
-    output reg [3:0] dealer_card3_o, 
-    output reg [3:0] dealer_card4_o,
-    output reg [3:0] dealer_card5_o,     
-    output reg [3:0] player_card1_o,
-    output reg [3:0] player_card2_o,  
-    output reg [3:0] player_card3_o,
-    output reg [3:0] player_card4_o,
-    output reg [3:0] player_card5_o
-    
+    output reg  [5:0]  user_total,
+    output reg  [5:0]  dealer_total,
+    output reg  [9:0]  balance,
+
+    // VALUES to table: 0=empty, 2..11 (11=Ace), 10 means 10/J/Q/K
+    output reg  [3:0]  dealer_card1_o,
+    output reg  [3:0]  dealer_card2_o,
+    output reg  [3:0]  dealer_card3_o,
+    output reg  [3:0]  dealer_card4_o,
+    output reg  [3:0]  dealer_card5_o,
+
+    output reg  [3:0]  player_card1_o,
+    output reg  [3:0]  player_card2_o,
+    output reg  [3:0]  player_card3_o,
+    output reg  [3:0]  player_card4_o,
+    output reg  [3:0]  player_card5_o,
+
+    // Balance as BCD digits (saves gates in table)
+    output reg  [3:0]  bal_d3,
+    output reg  [3:0]  bal_d2,
+    output reg  [3:0]  bal_d1,
+    output reg  [3:0]  bal_d0
 );
 
-  // ------------------------------------------------------------
-  // FSM State Encoding
-  // ------------------------------------------------------------
-  localparam S_IDLE        = 3'd0;
-  localparam S_INIT_DEAL   = 3'd1;
-  localparam S_PLAYER_TURN = 3'd2;
-  localparam S_DEALER_TURN = 3'd3;
-  localparam S_UPDATE_BAL  = 3'd4;
+    // ----------------------------
+    // Button edge detect
+    // ----------------------------
+    reg hit_d, stand_d, double_d, start_d;
+    wire hit_p    = btn_hit    & ~hit_d;
+    wire stand_p  = btn_stand  & ~stand_d;
+    wire double_p = btn_double & ~double_d;
+    wire start_p  = btn_start  & ~start_d;
 
-  reg [2:0] state, next_state;
-  // small counter to sequence the initial deal across multiple clocks so
-  // each card consumes a fresh RNG output instead of reusing the same value
-  reg  [1:0] deal_count;
-  wire [1:0] deal_count_ps;
-
-  wire is_doubled; // flag to indicate if the player has doubled this round
-  wire blackjack;  // flag: player has a natural blackjack (21 with 2 cards)
-  wire player_win;
-
-  reg [5:0] user_total_ps;
-  reg [5:0] dealer_total_ps;
-  reg [9:0] balance_ps;
-
-  wire player_finish_turn = btn_double || btn_stand || user_total == 21;
-
-  // ------------------------------------------------------------
-  // RNG instance (rng_card wrapper around lfsr16)
-  // ------------------------------------------------------------
-  reg [3:0] next_card_val; // Random card in range [2..11]
-  wire [3:0] next_card_va; // Random card in range [2..11]
-
-  rng_card card_rng (
-    .clk     (clk),
-    .rst_n   (rst_n),
-    .load    (rng_load),
-    .seed    (rng_seed),
-    .card_val(next_card_va)
-  );
-
-  
-  assign deal_count_ps = state == S_INIT_DEAL && deal_count == 2'd0 ? deal_count + 2'd1 :
-                         state == S_INIT_DEAL && deal_count == 2'd1 ? deal_count + 2'd1 :
-                         state == S_INIT_DEAL && deal_count == 2'd2 ? deal_count + 2'd1 : 2'd0;
-
-  assign blackjack = (state == S_INIT_DEAL) && ((user_total + next_card_val) == 6'd21) ? 1'b1 : 1'b0;
-  assign is_doubled = (state == S_PLAYER_TURN) && btn_double ? 1'b1 : 1'b0;
-
-  assign player_win = (dealer_total > 21 || user_total > dealer_total) ? 1'b1 : 1'b0;
-
-  // Pulse detectors for button inputs
-  reg btn_hit_n, btn_double_n, btn_stand_n, btn_start_n;
-  wire btn_hit_p, btn_double_p, btn_stand_p, btn_start_p;
-
-  always @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      btn_hit_n    <= 1'b0;
-      btn_double_n <= 1'b0;
-      btn_stand_n  <= 1'b0;
-      btn_start_n  <= 1'b0;
-    end else begin
-      btn_hit_n    <= btn_hit;
-      btn_double_n <= btn_double;
-      btn_stand_n  <= btn_stand;
-      btn_start_n  <= btn_start;
-    end
-  end
-
-  assign btn_hit_p    = ~btn_hit    & btn_hit_n;
-  assign btn_double_p = ~btn_double & btn_double_n;
-  assign btn_stand_p  = ~btn_stand  & btn_stand_n;
-  assign btn_start_p  = ~btn_start  & btn_start_n;
-
-  // ------------------------------------------------------------
-  // Sequential logic (state + game registers)
-  // ------------------------------------------------------------
-  always @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      // Reset state and game variables
-      state        <= S_IDLE;
-      user_total   <= 0;
-      dealer_total <= 0;
-      balance      <= 10'd500;  // Starting balance
-      deal_count   <= 2'd0;
-    end else begin
-      state        <= next_state;
-      deal_count   <= deal_count_ps;
-      user_total   <= user_total_ps;
-      dealer_total <= dealer_total_ps;
-      balance      <= balance_ps;
-      next_card_val <= next_card_va;
-    end
-  end
-
-  // ------------------------------------------------------------
-  // Combinational next-state logic
-  // ------------------------------------------------------------
-  always @(*) begin
-    next_state      = state;
-    dealer_total_ps = dealer_total;
-    user_total_ps   = user_total;
-    balance_ps      = balance;
-
-    case (state)
-      // Wait for "start" button to begin round
-      S_IDLE: begin     
-        if (btn_start_p)  next_state = S_INIT_DEAL; 
-      end
-
-    // After initial deal, go to player's turn only once the three card
-    // draws have completed (deal_count == 3). If the player hit a natural
-    // blackjack on the initial two cards, go straight to settlement.
-    S_INIT_DEAL: begin 
-      if (deal_count == 2'd3) begin
-        if (blackjack) next_state = S_UPDATE_BAL;
-        else next_state = S_PLAYER_TURN;
-      end else if (deal_count == 2'd2) begin 
-        dealer_total_ps = next_card_val; 
-      end else if (deal_count == 2'd1) begin 
-        user_total_ps = user_total + next_card_val;
-      end else if (deal_count == 2'd0) begin 
-        user_total_ps = next_card_val;
-      end
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            hit_d    <= 1'b0;
+            stand_d  <= 1'b0;
+            double_d <= 1'b0;
+            start_d  <= 1'b0;
+        end else begin
+            hit_d    <= btn_hit;
+            stand_d  <= btn_stand;
+            double_d <= btn_double;
+            start_d  <= btn_start;
+        end
     end
 
-    // Player turn logic
-    S_PLAYER_TURN: begin
-        if (btn_double_p || btn_hit_p) user_total_ps = user_total + next_card_val;
+    // ----------------------------
+    // Internal LFSR RNG
+    // ----------------------------
+    reg [15:0] lfsr;
+    wire fb = lfsr[15] ^ lfsr[13] ^ lfsr[12] ^ lfsr[10];
 
-        if (player_finish_turn)   next_state = S_DEALER_TURN;  // Double ends turn
-        else if (user_total > 21) next_state = S_UPDATE_BAL;   // Auto evaluate if bust
-        else                      next_state = S_PLAYER_TURN;     
-      end
-
-    // Dealer turn ends once >= 17 (go straight to balance update)
-    S_DEALER_TURN: if (dealer_total >= 17) next_state = S_UPDATE_BAL;
-                  else dealer_total_ps = dealer_total + next_card_val;
-
-      // After updating balance, return to IDLE (auto new round possible)
-    S_UPDATE_BAL: begin  
-      if (blackjack) begin 
-        balance_ps = balance + 10'd75;
-      end else if (user_total > 21) begin
-        balance_ps = balance - 10'd50;
-      end else if (player_win) begin
-        balance_ps = balance + 10'd50 + (10'd50 *is_doubled);
-      end else if (user_total < dealer_total) begin
-        balance_ps = balance - 10'd50 - (10'd50 *is_doubled);
-      end
-      next_state = S_IDLE; 
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            lfsr <= 16'hACE1;
+        end else if (rng_load) begin
+            lfsr <= rng_seed;
+        end else begin
+            lfsr <= {lfsr[14:0], fb};
+        end
     end
-    endcase
-  end
 
+    // ----------------------------
+    // Next card VALUE (2..11)
+    // 11 = Ace, 10 includes 10/J/Q/K
+    // ----------------------------
+    reg [3:0] next_rank_int; // 1..13 internal only
+    reg [3:0] next_value;    // 2..11 output to game logic
 
-  // ------------------------------------------------------------
-  // Current card outputs counters
-  // ------------------------------------------------------------
-  always @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      dealer_card1_o <= 4'd0;
-      dealer_card2_o <= 4'd0;
-      dealer_card3_o <= 4'd0;
-      dealer_card4_o <= 4'd0;
-      dealer_card5_o <= 4'd0;     
-      player_card1_o <= 4'd0;
-      player_card2_o <= 4'd0;  
-      player_card3_o <= 4'd0;
-      player_card4_o <= 4'd0;
-      player_card5_o <= 4'd0; 
-    end else begin
-    case (state)
-      S_IDLE: begin
-        if (btn_start) begin
-          // Clear all card outputs at the start of a new round
-          dealer_card1_o <= 4'd0;
-          dealer_card2_o <= 4'd0;
-          dealer_card3_o <= 4'd0;
-          dealer_card4_o <= 4'd0;
-          dealer_card5_o <= 4'd0;     
-          player_card1_o <= 4'd0;
-          player_card2_o <= 4'd0;  
-          player_card3_o <= 4'd0;
-          player_card4_o <= 4'd0;
-          player_card5_o <= 4'd0;     
-        end     
-      end
-      S_INIT_DEAL: begin
-        case (deal_count)
-          2'd0: player_card1_o <= next_card_val; // first card to user
-          2'd1: player_card2_o <= next_card_val; // second card to user
-          2'd2: dealer_card1_o <= next_card_val; // dealer's single card
-        default: ;
+    always @(*) begin
+        // fold lfsr[3:0] into a pseudo-rank 1..13
+        case (lfsr[3:0])
+            4'd0:  next_rank_int = 4'd1;
+            4'd1:  next_rank_int = 4'd2;
+            4'd2:  next_rank_int = 4'd3;
+            4'd3:  next_rank_int = 4'd4;
+            4'd4:  next_rank_int = 4'd5;
+            4'd5:  next_rank_int = 4'd6;
+            4'd6:  next_rank_int = 4'd7;
+            4'd7:  next_rank_int = 4'd8;
+            4'd8:  next_rank_int = 4'd9;
+            4'd9:  next_rank_int = 4'd10;
+            4'd10: next_rank_int = 4'd11; // J
+            4'd11: next_rank_int = 4'd12; // Q
+            4'd12: next_rank_int = 4'd13; // K
+            4'd13: next_rank_int = 4'd1;  // A
+            4'd14: next_rank_int = 4'd10;
+            default: next_rank_int = 4'd9;
         endcase
-      end
-      S_PLAYER_TURN: begin
-        if (btn_hit_p) begin
-          if (player_card3_o == 4'd0)
-            player_card3_o <= next_card_val;
-          else if (player_card4_o == 4'd0)
-            player_card4_o <= next_card_val;
-          else if (player_card5_o == 4'd0)
-              player_card5_o <= next_card_val;
-          end
-        end
-        S_DEALER_TURN: begin
-          if (dealer_total < 17) begin
-            if (dealer_card2_o == 4'd0)
-              dealer_card2_o <= next_card_val;
-            else if (dealer_card3_o == 4'd0)
-              dealer_card3_o <= next_card_val;
-            else if (dealer_card4_o == 4'd0)
-              dealer_card4_o <= next_card_val;
-            else if (dealer_card5_o == 4'd0)
-              dealer_card5_o <= next_card_val;          
-          end
-        end
-        default: ;
-      endcase
-    end
-  end
-  
 
-    // expose the current RNG/card value and deal counter for debugging and testing
-    assign dbg_last_card  = next_card_val;
-    assign dbg_deal_count = deal_count;
-    // expose blackjack detection for testbench
-    assign dbg_blackjack  = blackjack;
+        // rank -> blackjack value
+        if (next_rank_int == 4'd1)
+            next_value = 4'd11;       // Ace
+        else if (next_rank_int >= 4'd11)
+            next_value = 4'd10;       // J/Q/K
+        else
+            next_value = next_rank_int; // 2..10
+    end
+
+    // ----------------------------
+    // FSM
+    // ----------------------------
+    localparam S_IDLE      = 3'd0;
+    localparam S_INIT_DEAL = 3'd1;
+    localparam S_PLAYER    = 3'd2;
+    localparam S_DEALER    = 3'd3;
+    localparam S_SETTLE    = 3'd4;
+
+    reg [2:0] state, nstate;
+
+    reg [1:0] deal_count, deal_count_n;   // 0:P1, 1:P2, 2:D1
+    reg [2:0] p_cards, p_cards_n;
+    reg [2:0] d_cards, d_cards_n;
+    reg       doubled, doubled_n;
+    reg [2:0] p_soft, p_soft_n; // number of aces counted as 11
+    reg [2:0] d_soft, d_soft_n;
+
+    reg [5:0] user_total_n, dealer_total_n;
+    reg [9:0] balance_n;
+
+    localparam [9:0] BET = 10'd50;
+
+    // blackjack only when player has exactly 2 cards and total==21
+    wire is_natural_blackjack = (p_cards == 3'd2) && (user_total == 6'd21);
+
+    // ----------------------------
+    // Next-state / next-values
+    // ----------------------------
+    reg [9:0] bet_amt;
+
+    always @(*) begin
+        nstate         = state;
+
+        deal_count_n   = deal_count;
+        p_cards_n      = p_cards;
+        d_cards_n      = d_cards;
+        doubled_n      = doubled;
+
+        p_soft_n       = p_soft;
+        d_soft_n       = d_soft;
+
+        user_total_n   = user_total;
+        dealer_total_n = dealer_total;
+        balance_n      = balance;
+
+        bet_amt        = BET + (doubled ? BET : 10'd0);
+
+        case (state)
+            S_IDLE: begin
+                if (start_p) begin
+                    nstate         = S_INIT_DEAL;
+                    deal_count_n   = 2'd0;
+
+                    user_total_n   = 6'd0;
+                    dealer_total_n = 6'd0;
+
+                    p_cards_n      = 3'd0;
+                    d_cards_n      = 3'd0;
+
+                    doubled_n      = 1'b0;
+                    p_soft_n       = 3'd0;
+                    d_soft_n       = 3'd0;
+                end
+            end
+
+            S_INIT_DEAL: begin
+                if (deal_count == 2'd0) begin
+                    // P1
+                    user_total_n = user_total + next_value;
+                    p_cards_n    = 3'd1;
+                    if (next_value == 4'd11) p_soft_n = p_soft + 3'd1;
+                    deal_count_n = 2'd1;
+
+                end else if (deal_count == 2'd1) begin
+                    // P2
+                    user_total_n = user_total + next_value;
+                    p_cards_n    = 3'd2;
+                    if (next_value == 4'd11) p_soft_n = p_soft + 3'd1;
+
+                    // soft ace adjust if bust
+                    if ((user_total + next_value) > 6'd21) begin
+                        user_total_n = (user_total + next_value) - 6'd10;
+                        p_soft_n     = p_soft_n - 3'd1;
+                    end
+
+                    deal_count_n = 2'd2;
+
+                end else begin
+                    // D1
+                    dealer_total_n = dealer_total + next_value;
+                    d_cards_n      = 3'd1;
+                    if (next_value == 4'd11) d_soft_n = d_soft + 3'd1;
+
+                    deal_count_n = 2'd0;
+
+                    // after init deal: if natural blackjack -> settle, else player
+                    if (((p_cards_n == 3'd2) && (user_total_n == 6'd21)))
+                        nstate = S_SETTLE;
+                    else
+                        nstate = S_PLAYER;
+                end
+            end
+
+            S_PLAYER: begin
+                //double
+                if (double_p && (p_cards == 3'd2)) begin
+                    doubled_n    = 1'b1;
+
+                    user_total_n = user_total + next_value;
+                    p_cards_n = p_cards + 3'd1;
+                    if (next_value == 4'd11) p_soft_n = p_soft + 3'd1;
+
+                    if (user_total_n > 6'd21 && p_soft_n != 3'd0) begin
+                        user_total_n = user_total_n - 6'd10;
+                        p_soft_n     = p_soft_n - 3'd1;
+                    end
+
+                    if (user_total_n > 6'd21) nstate = S_SETTLE;
+                    else nstate = S_DEALER;
+
+                end else if (hit_p) begin
+                    user_total_n = user_total + next_value;
+                    if (p_cards < 3'd5) p_cards_n = p_cards + 3'd1;
+                    if (next_value == 4'd11) p_soft_n = p_soft + 3'd1;
+
+                    // multiple soft ace reductions (max 3 needed)
+                    if (user_total_n > 6'd21 && p_soft_n != 3'd0) begin
+                        user_total_n = user_total_n - 6'd10;
+                        p_soft_n     = p_soft_n - 3'd1;
+                    end
+                    if (user_total_n > 6'd21 && p_soft_n != 3'd0) begin
+                        user_total_n = user_total_n - 6'd10;
+                        p_soft_n     = p_soft_n - 3'd1;
+                    end
+                    if (user_total_n > 6'd21 && p_soft_n != 3'd0) begin
+                        user_total_n = user_total_n - 6'd10;
+                        p_soft_n     = p_soft_n - 3'd1;
+                    end
+
+                    // if (p_soft_n >= 3'd1) begin
+                    //     user_total_n = user_total_n - ((p_soft_n - 1) * 6'd10);
+                    //     p_soft_n     = 3'd1;
+                    // end
+
+                    // if (user_total_n > 6'd21 && p_soft_n != 3'd0) begin
+                    //     user_total_n = user_total_n - 6'd10;
+                    //     p_soft_n     = p_soft_n - 3'd1;
+                    // end
+
+
+                    if (user_total_n > 6'd21) nstate = S_SETTLE;
+                    else if (user_total_n == 6'd21) nstate = S_DEALER;
+                    else nstate = S_PLAYER;
+
+                end else if (stand_p) begin
+                    nstate = S_DEALER;
+                end
+            end
+
+            S_DEALER: begin
+                if (dealer_total >= 6'd17) begin
+                    nstate = S_SETTLE;
+                end else begin
+                    dealer_total_n = dealer_total + next_value;
+                    if (d_cards < 3'd5) d_cards_n = d_cards + 3'd1;
+                    if (next_value == 4'd11) d_soft_n = d_soft + 3'd1;
+
+                    if (dealer_total_n > 6'd21 && d_soft_n != 3'd0) begin
+                        dealer_total_n = dealer_total_n - 6'd10;
+                        d_soft_n       = d_soft_n - 3'd1;
+                    end
+                    if (dealer_total_n > 6'd21 && d_soft_n != 3'd0) begin
+                        dealer_total_n = dealer_total_n - 6'd10;
+                        d_soft_n       = d_soft_n - 3'd1;
+                    end
+
+                    if (dealer_total_n >= 6'd17) nstate = S_SETTLE;
+                    else nstate = S_DEALER;
+                end
+            end
+
+            S_SETTLE: begin
+                // settle once, then return idle
+                if (is_natural_blackjack) begin
+                    balance_n = balance + 10'd75; // 1.5*50
+                end else if (user_total > 6'd21) begin
+                    balance_n = balance - bet_amt;
+                end else if (dealer_total > 6'd21) begin
+                    balance_n = balance + bet_amt;
+                end else if (user_total > dealer_total) begin
+                    balance_n = balance + bet_amt;
+                end else if (user_total < dealer_total) begin
+                    balance_n = balance - bet_amt;
+                end else begin
+                    balance_n = balance; // push
+                end
+
+                nstate = S_IDLE;
+            end
+
+            default: nstate = S_IDLE;
+        endcase
+    end
+
+    // ----------------------------
+    // Sequential update + card outputs (VALUES only)
+    // ----------------------------
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            state        <= S_IDLE;
+            deal_count   <= 2'd0;
+
+            user_total   <= 6'd0;
+            dealer_total <= 6'd0;
+            balance      <= 10'd500;
+
+            p_cards      <= 3'd0;
+            d_cards      <= 3'd0;
+            doubled      <= 1'b0;
+            p_soft       <= 3'd0;
+            d_soft       <= 3'd0;
+
+            dealer_card1_o <= 4'd0;
+            dealer_card2_o <= 4'd0;
+            dealer_card3_o <= 4'd0;
+            dealer_card4_o <= 4'd0;
+            dealer_card5_o <= 4'd0;
+
+            player_card1_o <= 4'd0;
+            player_card2_o <= 4'd0;
+            player_card3_o <= 4'd0;
+            player_card4_o <= 4'd0;
+            player_card5_o <= 4'd0;
+
+        end else begin
+            state        <= nstate;
+            deal_count   <= deal_count_n;
+
+            user_total   <= user_total_n;
+            dealer_total <= dealer_total_n;
+            balance      <= balance_n;
+
+            p_cards      <= p_cards_n;
+            d_cards      <= d_cards_n;
+            doubled      <= doubled_n;
+            p_soft       <= p_soft_n;
+            d_soft       <= d_soft_n;
+
+            // clear cards when new round starts
+            if (state == S_IDLE && start_p) begin
+                dealer_card1_o <= 4'd0; dealer_card2_o <= 4'd0; dealer_card3_o <= 4'd0; dealer_card4_o <= 4'd0; dealer_card5_o <= 4'd0;
+                player_card1_o <= 4'd0; player_card2_o <= 4'd0; player_card3_o <= 4'd0; player_card4_o <= 4'd0; player_card5_o <= 4'd0;
+            end
+
+            // init deal card placements
+            if (state == S_INIT_DEAL) begin
+                if (deal_count == 2'd0) player_card1_o <= next_value;
+                else if (deal_count == 2'd1) player_card2_o <= next_value;
+                else dealer_card1_o <= next_value;
+            end
+
+            // player draws (hit or double)
+            if (state == S_PLAYER) begin
+                if (hit_p || (double_p && (p_cards == 3'd2))) begin
+                    if (player_card3_o == 4'd0) player_card3_o <= next_value;
+                    else if (player_card4_o == 4'd0) player_card4_o <= next_value;
+                    else if (player_card5_o == 4'd0) player_card5_o <= next_value;
+                end
+            end
+
+            // dealer draws
+            if (state == S_DEALER) begin
+                if (dealer_total < 6'd17) begin
+                    if (dealer_card2_o == 4'd0) dealer_card2_o <= next_value;
+                    else if (dealer_card3_o == 4'd0) dealer_card3_o <= next_value;
+                    else if (dealer_card4_o == 4'd0) dealer_card4_o <= next_value;
+                    else if (dealer_card5_o == 4'd0) dealer_card5_o <= next_value;
+                end
+            end
+        end
+    end
+
+    // ----------------------------
+    // Balance to BCD (Double Dabble)
+    // ----------------------------
+    integer i;
+    reg [25:0] shift;
+
+    always @(*) begin
+        shift = 26'd0;
+        shift[9:0] = balance;
+
+        for (i = 0; i < 10; i = i + 1) begin
+            if (shift[13:10] >= 4'd5) shift[13:10] = shift[13:10] + 4'd3;
+            if (shift[17:14] >= 4'd5) shift[17:14] = shift[17:14] + 4'd3;
+            if (shift[21:18] >= 4'd5) shift[21:18] = shift[21:18] + 4'd3;
+            if (shift[25:22] >= 4'd5) shift[25:22] = shift[25:22] + 4'd3;
+            shift = shift << 1;
+        end
+
+        bal_d0 = shift[13:10];
+        bal_d1 = shift[17:14];
+        bal_d2 = shift[21:18];
+        bal_d3 = shift[25:22];
+    end
 
 endmodule

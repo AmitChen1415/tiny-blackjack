@@ -42,10 +42,12 @@ module tt_um_AmitChen1415 (
   assign hit        = ui_in[0];
   assign stand      = ui_in[1];
   assign double_bet = ui_in[2];
-  assign start      = ui_in[4];
+  assign start      = ~ui_in[4];
 
   wire [4:0] next_card_val_o;
   wire [9:0] user_balance;
+  wire [3:0] bal_d3, bal_d2, bal_d1, bal_d0;
+
   
 //Instantiate the table renderer
 blackjack_table gfx (
@@ -66,7 +68,10 @@ blackjack_table gfx (
    .player_card3 (player_card3),
    .player_card4 (player_card4),
    .player_card5 (player_card5),
-   .user_balance (user_balance )
+   .bal_d3       (bal_d3),
+   .bal_d2       (bal_d2),
+   .bal_d1       (bal_d1),
+   .bal_d0       (bal_d0)
 );
 
 
@@ -89,6 +94,10 @@ blackjack_table gfx (
     .btn_double     (double_bet       ),
     .btn_start      (start            ),
     .balance        (user_balance     ),
+    .bal_d3         (bal_d3           ),
+    .bal_d2         (bal_d2           ),
+    .bal_d1         (bal_d1           ),
+    .bal_d0         (bal_d0           ),
     .dealer_card1_o (dealer_card1     ),
     .dealer_card2_o (dealer_card2     ),
     .dealer_card3_o (dealer_card3     ),
@@ -123,6 +132,6 @@ blackjack_table gfx (
 
 
 // Hold the video path in reset until the PLL locks
-wire rst_pix_n = rst_n & pll_locked;
-
+wire rst_pix_n;
+assign rst_pix_n = rst_n & pll_locked;
 endmodule
