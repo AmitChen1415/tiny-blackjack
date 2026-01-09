@@ -3,8 +3,8 @@
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles, RisingEdge, FallingEdge
-import os
+from cocotb.triggers import ClockCycles, RisingEdge
+import random
 
 # -----------------------------------------------------------------------------
 # UI bit mapping (from your TOP)
@@ -26,18 +26,18 @@ class GameDriver:
 
     - Drives user inputs on ui_in (start/hit/stand/double)
     - Manages reset/clock
-    - Provides convenience reads of internal debug signals when hierarchy is visible:
+    - Optional reads of internal debug signals when hierarchy is visible:
         game_inst.dbg_deal_count
         game_inst.dbg_last_card
         game_inst.dbg_blackjack
         game_inst.user_total
         game_inst.dealer_total
         game_inst.balance
-      These are optional; tests still work without them (methods will fallback).
     """
 
     def __init__(self, dut, clk_period_ns=40):
         self._dut = dut
+
         # start clock
         clock = Clock(dut.clk, clk_period_ns, units="ns")
         cocotb.start_soon(clock.start())
@@ -55,10 +55,10 @@ class GameDriver:
     # ------------------------- basic controls -------------------------
 
     async def reset(self, pre_cycles=2, hold_cycles=10, post_cycles=5):
-        """Apply a clean synchronous reset with ena high."""
+        """Apply a clean reset with ena high."""
         self._dut._log.info("Reset")
-        self._dut.ena.value   = 1
-        self._dut.ui_in.value = NOT_PUSHED
+        self._dut.ena.value    = 1
+        self._dut.ui_in.value  = NOT_PUSHED
         self._dut.uio_in.value = 0
 
         # ensure stable clock before asserting reset
@@ -73,10 +73,7 @@ class GameDriver:
         await ClockCycles(self._dut.clk, post_cycles)
 
     async def _press(self, mask: int, press_cycles=3, release_cycles=1):
-        """
-        Press a button mask for 'press_cycles' clocks, then release.
-        Supports multi-button presses by OR-ing masks.
-        """
+        """Press a button mask for press_cycles clocks, then release."""
         self._dut.ui_in.value = mask
         await ClockCycles(self._dut.clk, press_cycles)
         self._dut.ui_in.value = NOT_PUSHED
@@ -85,28 +82,22 @@ class GameDriver:
     # ------------------------- user actions -------------------------
 
     async def start(self):
-        """Press START to begin a round."""
         await self._press(BTN_START)
 
     async def hit(self):
-        """Player HIT (take a card)."""
         await self._press(BTN_HIT)
 
     async def stand(self):
-        """Player STAND (end turn)."""
         await self._press(BTN_STAND)
 
     async def double(self):
-        """Player DOUBLE (one card then end turn)."""
         await self._press(BTN_DOUBLE)
 
     async def hit_and_wait(self, settle_cycles=3):
-        """HIT and wait a few cycles for totals to update."""
         await self.hit()
         await ClockCycles(self._dut.clk, settle_cycles)
 
     async def double_and_wait(self, settle_cycles=3):
-        """DOUBLE and wait a few cycles for totals to update."""
         await self.double()
         await ClockCycles(self._dut.clk, settle_cycles)
 
@@ -116,10 +107,9 @@ class GameDriver:
         """
         Wait until initial deal completes (user gets 2, dealer 1).
         If dbg_deal_count is available, wait for it to reach 3.
-        Otherwise, just wait a conservative number of cycles.
+        Otherwise, wait a conservative number of cycles.
         """
         if self._dbg_deal_count is None:
-            # fallback: just wait a bit
             await ClockCycles(self._dut.clk, 16)
             return True
 
@@ -132,8 +122,8 @@ class GameDriver:
     async def wait_until_dealer_done(self, timeout_cycles=5000):
         """
         Wait for dealer drawing phase to complete.
-        If dealer_total is readable, wait until it stops increasing
-        or reaches >= 17 for several stable cycles; else, just wait.
+        If dealer_total is readable, wait until it stops changing at >=17 for a few cycles.
+        Otherwise, wait a conservative number of cycles.
         """
         if self._dealer_total is None:
             await ClockCycles(self._dut.clk, 64)
@@ -145,7 +135,7 @@ class GameDriver:
         for _ in range(timeout_cycles):
             await RisingEdge(self._dut.clk)
             cur = int(self._dealer_total.value)
-            # consider done when >=17 and stable for a few cycles
+
             if cur >= 17:
                 if cur == last_val:
                     stable += 1
@@ -154,6 +144,7 @@ class GameDriver:
                 else:
                     stable = 0
             last_val = cur
+
         raise TimeoutError("Timed out waiting for dealer to finish")
 
     # Optional reads (return None if hierarchy isn’t available)
@@ -179,34 +170,21 @@ class GameDriver:
     # ------------------------- round helpers -------------------------
 
     async def start_and_wait_deal(self):
-        """Start a new round and wait until the initial deal finishes."""
         await self.start()
         return await self.wait_initial_deal()
 
     async def play_player_turn(self, do_double=False, num_hits=0, settle_cycles=3):
-        """
-        Play the player's turn with a scripted strategy:
-        - if do_double: press DOUBLE (takes one card & ends turn)
-        - else: press HIT 'num_hits' times and then STAND
-        """
         if do_double:
             await self.double_and_wait(settle_cycles)
             return
 
         for _ in range(max(0, int(num_hits))):
             await self.hit_and_wait(settle_cycles)
+
         await self.stand()
         await ClockCycles(self._dut.clk, settle_cycles)
 
     async def play_round(self, do_double=False, num_hits=0, settle_cycles=3):
-        """
-        Full round flow:
-          1) START + wait initial deal
-          2) Player actions (double or hits+stand)
-          3) Wait dealer to finish
-          4) Wait a few cycles for settlement
-        Returns a dict with any observable stats (None if not visible).
-        """
         await self.start_and_wait_deal()
         await self.play_player_turn(do_double=do_double, num_hits=num_hits, settle_cycles=settle_cycles)
         await self.wait_until_dealer_done()
@@ -220,8 +198,27 @@ class GameDriver:
             "deal_count":   self.read_deal_count_now(),
         }
 
+    # ------------------------- RNG seeding -------------------------
+
+    async def load_seed(self, seed=0xACE1):
+        """
+        Load deterministic RNG seed (ONLY if the top exposes rng_seed/rng_load).
+        If ports don't exist, this will safely skip (won't fail tests).
+        """
+        if not hasattr(self._dut, "rng_seed") or not hasattr(self._dut, "rng_load"):
+            self._dut._log.warning("No rng_seed/rng_load ports on DUT; skipping seed load.")
+            return False
+
+        self._dut.rng_seed.value = seed
+        self._dut.rng_load.value = 1
+        await ClockCycles(self._dut.clk, 1)
+        self._dut.rng_load.value = 0
+        await ClockCycles(self._dut.clk, 1)
+        return True
+
+
 # -----------------------------------------------------------------------------
-#  Basic functionality tests
+#  Basic functionality tests (your existing ones, kept)
 # -----------------------------------------------------------------------------
 
 @cocotb.test()
@@ -248,36 +245,12 @@ async def test_start_initial_deal_completes(dut):
     if deal_cnt is not None:
         assert deal_cnt == 3, f"Expected deal_count == 3, got {deal_cnt}"
 
-    # Totals should be non-zero after two user cards and one dealer card
     u = game.read_user_total_now()
     d = game.read_dealer_total_now()
     if u is not None:
         assert u > 0, f"User total should be >0 after initial deal, got {u}"
     if d is not None:
-        assert d >= 0, f"Dealer total should be >=0, got {d}"
-
-
-# @cocotb.test()
-# async def test_hit_consumes_rng_and_updates_total(dut):
-#     """Verify that HIT increases user_total by a valid card amount [1..11]."""
-#     game = GameDriver(dut)
-#     await game.reset()
-#     await game.start_and_wait_deal()
-
-#     user_before = game.read_user_total_now()
-#     await game.hit_and_wait()
-#     user_after = game.read_user_total_now()
-
-#     assert user_before is not None, "read_user_total_now() returned None before HIT"
-#     assert user_after is not None, "read_user_total_now() returned None after HIT"
-
-#     delta = user_after - user_before
-
-#     assert 1 <= delta <= 11, (
-#         f"HIT added invalid card value delta={delta} "
-#         f"(user_before={user_before}, user_after={user_after})"
-#     )
-
+        assert d >= 0, f"Dealer total should be >=0 after initial deal, got {d}"
 
 
 @cocotb.test()
@@ -304,18 +277,19 @@ async def test_stand_triggers_dealer_phase(dut):
 
     await game.stand()
     await game.wait_until_dealer_done()
+
     d = game.read_dealer_total_now()
     if d is not None:
         assert d >= 17, f"Dealer expected to finish at >=17, got {d}"
 
-# Maybe will not get bj in this test due to randomness. if want to check bj, maybe nee to hardcoded the user cards.
+
 @cocotb.test()
 async def test_settlement_balance_delta_is_valid(dut):
     """
     Verify that after a round completes, balance change is one of valid values:
     - Normal round: {-50, 0, +50}
-    - Double bet: {-100, +100}
     - Natural blackjack: +75 (per current implementation)
+    (Double-bet deltas are handled in a separate test)
     """
     game = GameDriver(dut)
     await game.reset()
@@ -351,7 +325,6 @@ async def test_bust_flows_to_settlement(dut):
 
     await game.start_and_wait_deal()
 
-    # Try multiple HITs to likely exceed 21
     for _ in range(6):
         await game.hit_and_wait()
 
@@ -365,19 +338,13 @@ async def test_bust_flows_to_settlement(dut):
 
 @cocotb.test()
 async def test_multiple_rounds_smoke(dut):
-    """
-    Smoke test: run several random rounds with small variations.
-    Ensures game never deadlocks and balance stays within reasonable limits.
-    """
-    import random
-
+    """Smoke test: run several random rounds and ensure no deadlocks / sane balance."""
     game = GameDriver(dut)
     await game.reset()
 
     for _ in range(8):
         await game.start_and_wait_deal()
 
-        # Random lightweight strategy: sometimes double, sometimes hit a few times
         if random.randint(0, 3) == 0:
             await game.double_and_wait()
         else:
@@ -395,10 +362,7 @@ async def test_multiple_rounds_smoke(dut):
 
 @cocotb.test()
 async def test_buttons_ignored_before_start(dut):
-    """
-    Verify that HIT/STAND/DOUBLE before pressing START do not change
-    totals or balance.
-    """
+    """Verify HIT/STAND/DOUBLE before START do not change totals or balance."""
     game = GameDriver(dut)
     await game.reset()
 
@@ -406,7 +370,6 @@ async def test_buttons_ignored_before_start(dut):
     u0   = game.read_user_total_now()
     d0   = game.read_dealer_total_now()
 
-    # Press some buttons without ever calling START
     await game.hit_and_wait()
     await game.double_and_wait()
     await game.stand()
@@ -417,49 +380,28 @@ async def test_buttons_ignored_before_start(dut):
     d1   = game.read_dealer_total_now()
 
     if bal0 is not None and bal1 is not None:
-        assert bal1 == bal0, (
-            f"Balance changed before START was pressed: {bal0} -> {bal1}"
-        )
+        assert bal1 == bal0, f"Balance changed before START: {bal0} -> {bal1}"
     if u0 is not None and u1 is not None:
-        assert u1 == u0, (
-            f"User total changed before START was pressed: {u0} -> {u1}"
-        )
+        assert u1 == u0, f"User total changed before START: {u0} -> {u1}"
     if d0 is not None and d1 is not None:
-        assert d1 == d0, (
-            f"Dealer total changed before START was pressed: {d0} -> {d1}"
-        )
+        assert d1 == d0, f"Dealer total changed before START: {d0} -> {d1}"
 
 
 @cocotb.test()
 async def test_reset_mid_round_clears_state(dut):
-    """
-    Start a round, deal some cards, then apply reset.
-    Verify that state goes back to initial values (balance 500, totals 0).
-    """
+    """Start a round, deal some cards, then reset; verify state returns to initial."""
     game = GameDriver(dut)
     await game.reset()
 
-    # Begin a round and take at least one HIT so we are clearly "mid-round"
     await game.start_and_wait_deal()
     await game.hit_and_wait()
 
-    u_before = game.read_user_total_now()
-    d_before = game.read_dealer_total_now()
-    bal_before = game.read_balance_now()
-
-    dut._log.info(
-        f"Before mid-round reset: user_total={u_before}, "
-        f"dealer_total={d_before}, balance={bal_before}"
-    )
-
-    # Now reset in the middle of the game
     await game.reset()
 
     u_after = game.read_user_total_now()
     d_after = game.read_dealer_total_now()
     bal_after = game.read_balance_now()
 
-    # Expectations: totals back to 0, balance back to 500 (if visible)
     if u_after is not None:
         assert u_after == 0, f"user_total not cleared by reset: {u_after}"
     if d_after is not None:
@@ -470,15 +412,10 @@ async def test_reset_mid_round_clears_state(dut):
 
 @cocotb.test()
 async def test_double_round_balance_delta_is_100(dut):
-    """
-    Run multiple rounds where the player always chooses DOUBLE.
-    Whenever balance changes, verify that the magnitude of the change
-    is exactly 100 (per current implementation).
-    """
+    """Run multiple rounds with DOUBLE and verify non-zero delta is ±100."""
     game = GameDriver(dut)
     await game.reset()
 
-    # Run several DOUBLE-only rounds
     for _ in range(10):
         bal_before = game.read_balance_now()
         stats = await game.play_round(do_double=True, num_hits=0)
@@ -488,125 +425,118 @@ async def test_double_round_balance_delta_is_100(dut):
             continue
 
         delta = bal_after - bal_before
-
-        # If a round was actually settled, delta should be -100 or +100
         if delta != 0:
             assert delta in {-100, 100}, (
                 f"DOUBLE round delta should be ±100, got {delta} "
-                f"(user_total={stats['user_total']}, "
-                f"dealer_total={stats['dealer_total']})"
+                f"(user_total={stats['user_total']}, dealer_total={stats['dealer_total']})"
             )
 
 
 @cocotb.test()
 async def test_push_keeps_balance_when_observed(dut):
     """
-    Over several rounds, if we ever observe a push (user_total == dealer_total <= 21),
-    verify that the balance does not change for that round.
-
-    If a push is not observed within the tested rounds, the test warns but does not fail.
+    If a push (user_total == dealer_total <=21) is observed, balance delta must be 0.
+    If no push seen, warn but don't fail.
     """
     game = GameDriver(dut)
     await game.reset()
 
     seen_push = False
 
-    # Run many "simple" rounds: no double, at most a couple of HITs
-    import random
     for _ in range(80):
         bal_before = game.read_balance_now()
-        num_hits = random.randint(0, 2)
-        stats = await game.play_round(do_double=False, num_hits=num_hits)
+        stats = await game.play_round(do_double=False, num_hits=random.randint(0, 2))
         bal_after = game.read_balance_now()
 
         u = stats["user_total"]
         d = stats["dealer_total"]
 
-        if (
-            u is not None
-            and d is not None
-            and bal_before is not None
-            and bal_after is not None
-            and u <= 21
-            and d <= 21
-            and u == d
-        ):
+        if None in (bal_before, bal_after, u, d):
+            continue
+
+        if u <= 21 and d <= 21 and u == d:
             seen_push = True
-            delta = bal_after - bal_before
-            assert delta == 0, (
-                f"Push (user_total == dealer_total == {u}) should keep balance, "
-                f"but delta={delta}"
+            assert (bal_after - bal_before) == 0, (
+                f"Push (u=d={u}) should keep balance, got delta={bal_after - bal_before}"
             )
             break
 
     if not seen_push:
-        dut._log.warning(
-            "test_push_keeps_balance_when_observed: no push observed in 80 rounds; "
-            "push behavior not exercised in this run."
-        )
+        dut._log.warning("No push observed in 80 rounds; push behavior not exercised.")
 
 
 @cocotb.test()
-async def test_blackjack_flag_and_payout_when_observed(dut):
+async def test_wait_until_blackjack_then_check_payout(dut):
     """
-    Over several rounds, whenever the blackjack debug flag is seen,
-    verify that:
-      - user_total == 21
-      - balance delta is +75 (per current implementation)
-
-    If no blackjack is observed, the test warns but does not fail.
+    Run rounds until we observe a blackjack, then verify:
+      - blackjack flag == 1 (if visible)
+      - user_total == 21 (if visible)
+      - balance delta == +75 (if visible)
+    No RTL changes. May take many rounds (non-deterministic).
     """
     game = GameDriver(dut)
     await game.reset()
 
-    saw_bj = False
+    # Require visibility of balance at least, otherwise we can't check payout
+    if game.read_balance_now() is None:
+        dut._log.warning("Balance not visible via hierarchy; cannot verify blackjack payout.")
+        return
+
+    max_rounds = 20000  # "כמה שצריך" - אפשר להעלות גם ל-100k אם בא לך
     prev_balance = game.read_balance_now()
 
-    for _ in range(80):
-        stats = await game.play_round(do_double=False, num_hits=0)
+    for i in range(max_rounds):
+        # Play a minimal round (no hits) so we don't miss "natural blackjack"
+        await game.start_and_wait_deal()
+
+        bj_flag = game.read_blackjack_now()
+        u_total = game.read_user_total_now()
+
+        # Detect blackjack:
+        # - Prefer bj_flag if available
+        # - Fallback: user_total==21 right after initial deal (typical natural blackjack)
+        is_bj = False
+        if bj_flag is not None:
+            is_bj = (bj_flag == 1)
+        elif u_total is not None:
+            is_bj = (u_total == 21)
+
+        # Finish the round the same way your other tests do
+        await game.stand()
+        await game.wait_until_dealer_done()
+        await ClockCycles(dut.clk, 4)
+
         cur_balance = game.read_balance_now()
 
-        bj_flag = stats["blackjack"]
-        u_total = stats["user_total"]
+        if is_bj:
+            dut._log.info(f" Blackjack observed on round {i+1}/{max_rounds}")
+            dut._log.info(f"   bj_flag={bj_flag}, user_total={u_total}, balance {prev_balance}->{cur_balance}")
 
-        if bj_flag is not None and bj_flag == 1:
-            saw_bj = True
-
+            # Strong asserts if signals are visible
+            if bj_flag is not None:
+                assert bj_flag == 1, f"Expected bj_flag=1, got {bj_flag}"
             if u_total is not None:
-                assert u_total == 21, (
-                    f"Blackjack flag set but user_total != 21 (got {u_total})"
-                )
+                assert u_total == 21, f"Expected user_total=21 on blackjack, got {u_total}"
 
-            if prev_balance is not None and cur_balance is not None:
-                delta = cur_balance - prev_balance
-                assert delta == 75, (
-                    f"Blackjack payout expected +75, got {delta} "
-                    f"(user_total={u_total})"
-                )
-            break
+            assert (cur_balance - prev_balance) == 75, (
+                f"Expected blackjack payout +75, got {cur_balance - prev_balance}"
+            )
+            return  # done!
 
+        # not BJ -> continue
         prev_balance = cur_balance
 
-    if not saw_bj:
-        dut._log.warning(
-            "test_blackjack_flag_and_payout_when_observed: "
-            "no blackjack observed in 80 rounds; blackjack behavior not exercised."
-        )
+    assert False, f"Did not observe blackjack in {max_rounds} rounds (non-deterministic)."
 
 
 @cocotb.test()
 async def test_balance_never_negative_over_many_rounds(dut):
-    """
-    Stress test: run many random rounds (with optional DOUBLE and HITs)
-    and verify that the balance never goes negative.
-    """
-    import random
-
+    """Stress test: run random rounds; balance should never go negative."""
     game = GameDriver(dut)
     await game.reset()
 
     for _ in range(50):
-        do_double = (random.randint(0, 3) == 0)  # ~25% chance to DOUBLE
+        do_double = (random.randint(0, 3) == 0)  # ~25%
         num_hits = random.randint(0, 3)
 
         await game.play_round(do_double=do_double, num_hits=num_hits)
@@ -614,3 +544,153 @@ async def test_balance_never_negative_over_many_rounds(dut):
         bal = game.read_balance_now()
         if bal is not None:
             assert bal >= 0, f"Balance became negative: {bal}"
+
+
+# -----------------------------------------------------------------------------
+#  NEW tests (protocol + determinism hooks)
+# -----------------------------------------------------------------------------
+
+@cocotb.test()
+async def test_start_ignored_mid_round(dut):
+    """
+    Press START during an active round; totals should not reset/re-deal.
+    (If your intended behavior is "restart round", change assertions accordingly.)
+    """
+    game = GameDriver(dut)
+    await game.reset()
+
+    await game.start_and_wait_deal()
+    u_before = game.read_user_total_now()
+    d_before = game.read_dealer_total_now()
+    dc_before = game.read_deal_count_now()
+
+    await game.start()  # start again mid-round
+    await ClockCycles(dut.clk, 12)
+
+    u_after = game.read_user_total_now()
+    d_after = game.read_dealer_total_now()
+    dc_after = game.read_deal_count_now()
+
+    if u_before is not None and u_after is not None:
+        assert u_after == u_before, f"START mid-round changed user_total: {u_before}->{u_after}"
+    if d_before is not None and d_after is not None:
+        assert d_after == d_before, f"START mid-round changed dealer_total: {d_before}->{d_after}"
+    if dc_before is not None and dc_after is not None:
+        assert dc_after == dc_before, f"START mid-round changed deal_count: {dc_before}->{dc_after}"
+
+
+@cocotb.test()
+async def test_simultaneous_hit_and_stand_defined_behavior(dut):
+    """
+    Press HIT|STAND simultaneously. This should have a defined behavior:
+    - either ignored, or
+    - one has priority.
+    Here we assert it does NOT deadlock and still reaches dealer-done after we STAND.
+    """
+    game = GameDriver(dut)
+    await game.reset()
+    await game.start_and_wait_deal()
+
+    # Multi-press for a couple cycles
+    await game._press(BTN_HIT | BTN_STAND, press_cycles=2, release_cycles=1)
+
+    # Ensure we can still finish the round
+    await game.stand()
+    await game.wait_until_dealer_done()
+    await ClockCycles(dut.clk, 4)
+
+    d = game.read_dealer_total_now()
+    if d is not None:
+        assert d >= 17, f"Dealer didn't finish properly after simultaneous press, dealer_total={d}"
+
+
+@cocotb.test()
+async def test_hold_hit_is_not_auto_repeat_spam(dut):
+    """
+    Hold HIT for a long time. This should NOT cause uncontrolled repeated hits
+    (unless your design is level-sensitive by intent).
+    We only assert the total doesn't grow insanely and the design keeps running.
+    """
+    game = GameDriver(dut)
+    await game.reset()
+    await game.start_and_wait_deal()
+
+    u0 = game.read_user_total_now()
+
+    # Hold HIT level for 50 cycles
+    dut.ui_in.value = BTN_HIT
+    await ClockCycles(dut.clk, 50)
+    dut.ui_in.value = NOT_PUSHED
+    await ClockCycles(dut.clk, 10)
+
+    u1 = game.read_user_total_now()
+
+    if u0 is not None and u1 is not None:
+        # A single HIT is at most +11. If your design debounces/pulses internally,
+        # you'd expect <= +11. If your design is level-sensitive, this might be higher.
+        # We'll enforce a "not insane" bound; tighten to <=11 if that's your intent.
+        assert (u1 - u0) <= 22, f"Holding HIT caused too many hits: u0={u0}, u1={u1}"
+
+    # Ensure we can still complete round
+    await game.stand()
+    await game.wait_until_dealer_done()
+
+
+@cocotb.test()
+async def test_double_after_hit_is_ignored_or_not_full_double(dut):
+    """
+    Common rule: double is only allowed as first action.
+    This test checks that after doing HIT once, pressing DOUBLE does not apply ±100 payout.
+    If your intended behavior is different, adjust accordingly.
+    """
+    game = GameDriver(dut)
+    await game.reset()
+    await game.start_and_wait_deal()
+
+    await game.hit_and_wait()
+
+    bal0 = game.read_balance_now()
+
+    await game.double_and_wait()
+    await game.wait_until_dealer_done()
+    await ClockCycles(dut.clk, 4)
+
+    bal1 = game.read_balance_now()
+    if bal0 is None or bal1 is None:
+        return
+
+    delta = bal1 - bal0
+    assert delta not in (-100, 100), (
+        f"DOUBLE-after-HIT looked like a full double payout (delta={delta}). "
+        "If you *do* allow double after hit, change this test."
+    )
+
+
+@cocotb.test()
+async def test_deterministic_seed_round_smoke(dut):
+    """
+    If rng_seed/rng_load exist on the DUT, load a seed and run a round.
+    This test does NOT enforce exact totals (you can lock those later),
+    it just proves the seed API works and the game progresses.
+    """
+    game = GameDriver(dut)
+    await game.reset()
+
+    seeded = await game.load_seed(0x1234)
+    if not seeded:
+        dut._log.warning("Skipping deterministic seed test: no rng_seed/rng_load ports.")
+        return
+
+    await game.start_and_wait_deal()
+    await game.hit_and_wait()
+    await game.stand()
+    await game.wait_until_dealer_done()
+    await ClockCycles(dut.clk, 4)
+
+    # Basic sanity: totals visible and within bounds if available
+    u = game.read_user_total_now()
+    d = game.read_dealer_total_now()
+    if u is not None:
+        assert 0 <= u <= 31, f"user_total out of expected bounds: {u}"
+    if d is not None:
+        assert 0 <= d <= 31, f"dealer_total out of expected bounds: {d}"

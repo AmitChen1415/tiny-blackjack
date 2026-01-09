@@ -19,10 +19,8 @@ project:
   source_files:
     - "tt_um_AmitChen1415.v"
     - "blackjack_core.v"
-    - "card_regfile.v"
-    - "lfsr16.v"
+    - "blackjack_table.v"
     - "pwrup_synchronizer.v"
-    - "red_square.v"
     - "rng_card.v"
     - "vga_controller.v"
 

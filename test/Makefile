@@ -8,10 +8,10 @@ SRC_DIR = $(PWD)/../src
 # List of source files (relative to src/) — keep in sync with info.yaml
 PROJECT_SOURCES = tt_um_AmitChen1415.v \
 				  blackjack_core.v \
-				  lfsr16.v \
 				  pwrup_synchronizer.v \
 				  rng_card.v \
 				  vga_controller.v\
+				  blackjack_table.v\
 				  
 
 ifneq ($(GATES),yes)
