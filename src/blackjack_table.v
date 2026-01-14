@@ -101,7 +101,7 @@ module blackjack_table (
     wire p4_fill = p_row && (x >= X3) && (x < X3+CARD_W);
     wire p5_fill = p_row && (x >= X4) && (x < X4+CARD_W);
 
-    // borders (computed by "in fill and near edge")
+    // borders
     wire d1_brd = d1_fill && ( (x < X0+BOR) || (x >= X0+CARD_W-BOR) || (y < D_Y+BOR) || (y >= D_Y+CARD_H-BOR) );
     wire d2_brd = d2_fill && ( (x < X1+BOR) || (x >= X1+CARD_W-BOR) || (y < D_Y+BOR) || (y >= D_Y+CARD_H-BOR) );
     wire d3_brd = d3_fill && ( (x < X2+BOR) || (x >= X2+CARD_W-BOR) || (y < D_Y+BOR) || (y >= D_Y+CARD_H-BOR) );
@@ -115,7 +115,7 @@ module blackjack_table (
     wire p5_brd = p5_fill && ( (x < X4+BOR) || (x >= X4+CARD_W-BOR) || (y < P_Y+BOR) || (y >= P_Y+CARD_H-BOR) );
 
     // ------------------------------------------------------------
-    // Random 10/J/Q/K per slot, stable per card (only updates on 0->10)
+    // Random 10/J/Q/K per slot
     // ------------------------------------------------------------
     reg [7:0] lfsr8;
     wire lfsr_fb = lfsr8[7] ^ lfsr8[5] ^ lfsr8[4] ^ lfsr8[3];
@@ -125,7 +125,6 @@ module blackjack_table (
         else        lfsr8 <= {lfsr8[6:0], lfsr_fb};
     end
 
-    // 00=10, 01=J, 10=Q, 11=K
     reg [1:0] d10v1, d10v2, d10v3, d10v4, d10v5;
     reg [1:0] p10v1, p10v2, p10v3, p10v4, p10v5;
 
@@ -164,22 +163,20 @@ module blackjack_table (
     localparam [9:0] IN_X  = 10'd12;
     localparam [9:0] IN_Y  = 10'd10;
 
+    localparam [9:0] GLYPH_W = 10'd5;
+    localparam [9:0] GLYPH_H = 10'd7;
+
     // ------------------------------------------------------------
-    // Diamond (red) per card (no function)
-    // diamond condition: |dx|*dy + |dy|*dx <= dx*dy (scaled)
-    // We'll do: ax*11 + ay*8 <= 88  (dx=8, dy=11)
+    // Diamond per card (no function)
     // ------------------------------------------------------------
     reg [9:0] ax, ay;
     reg       diamond_on;
 
     always @(*) begin
-        // default
         ax = 10'd0;
         ay = 10'd0;
         diamond_on = 1'b0;
 
-        // check each card center only if inside that card and card exists
-        // Dealer 1
         if (d1_fill && d1_has) begin
             ax = (x > (X0 + CARD_W/2)) ? (x - (X0 + CARD_W/2)) : ((X0 + CARD_W/2) - x);
             ay = (y > (D_Y + CARD_H/2)) ? (y - (D_Y + CARD_H/2)) : ((D_Y + CARD_H/2) - y);
@@ -224,23 +221,7 @@ module blackjack_table (
     end
 
     // ------------------------------------------------------------
-    // Decide what glyph(s) to draw for a given VALUE + variant
-    // We output:
-    //   g0 = main glyph code (A,2..9,J,Q,K,1,0,B,L)
-    //   g1 = optional second glyph (used only for "10")
-    //   use_two = 1 if we draw two glyphs side-by-side
-    //
-    // Glyph code mapping for glyph5x7:
-    //  0=blank
-    //  1=A
-    //  2..9 digits 2..9
-    //  10 digit0
-    //  11 digit1
-    //  12=J
-    //  13=Q
-    //  14=K
-    //  15=B
-    //  16=L
+    // Decide glyph(s) for a given VALUE + variant
     // ------------------------------------------------------------
     reg [4:0] g0, g1;
     reg       use_two;
@@ -249,22 +230,17 @@ module blackjack_table (
     reg [1:0] cur_v10;
 
     always @(*) begin
-        // defaults
         g0 = 5'd0; g1 = 5'd0; use_two = 1'b0;
 
-        // this block will be used repeatedly by selecting cur_val/cur_v10 externally
-        // (we set those per-slot below)
         if (cur_val == 4'd11) begin
             g0 = 5'd1; // A
         end else if (cur_val >= 4'd2 && cur_val <= 4'd9) begin
             g0 = {1'b0, cur_val}; // 2..9
         end else if (cur_val == 4'd10) begin
-            // random face for 10s
             if (cur_v10 == 2'd0) begin
-                // "10" as two glyphs: '1' then '0'
                 use_two = 1'b1;
-                g0 = 5'd11; // digit1
-                g1 = 5'd10; // digit0
+                g0 = 5'd11; // '1'
+                g1 = 5'd10; // '0'
             end else if (cur_v10 == 2'd1) begin
                 g0 = 5'd12; // J
             end else if (cur_v10 == 2'd2) begin
@@ -273,67 +249,43 @@ module blackjack_table (
                 g0 = 5'd14; // K
             end
         end else begin
-            g0 = 5'd0; // blank
+            g0 = 5'd0;
         end
     end
 
     // ------------------------------------------------------------
-    // Draw digits in corners for the *slot currently under pixel*
-    // We'll compute one signal "corner_on" for black pixels of the label.
+    // Corner digits
     // ------------------------------------------------------------
     reg corner_on;
     reg signed [11:0] lx, ly;
     reg [2:0] col, row;
     wire pix0, pix1;
 
-    // glyph module instances
     glyph5x7 u_g0 (.code(g0), .col(col), .row(row), .on(pix0));
     glyph5x7 u_g1 (.code(g1), .col(col), .row(row), .on(pix1));
 
-    // Helpers for corner area: top-left and bottom-right
-    localparam [9:0] GLYPH_W = 10'd5;
-    localparam [9:0] GLYPH_H = 10'd7;
-    localparam [9:0] ADV     = 10'd6; // spacing in glyph units (like original)
-
-    // For scale=2: pixel width = 5*2=10, height = 7*2=14
-    // If use_two=1: width ~ (5+1+5)*2 = 22 pixels
+    // width in pixels of the corner label
+    wire signed [11:0] label_w = $signed(use_two ? ((GLYPH_W*2 + 1) * DIG_S) : (GLYPH_W * DIG_S));
+    wire signed [11:0] label_h = $signed(GLYPH_H * DIG_S);
 
     always @(*) begin
+        // DEFAULTS (prevent latches)
         corner_on = 1'b0;
+        cur_val   = 4'd0;
+        cur_v10   = 2'd0;
+        lx        = 12'sd0;
+        ly        = 12'sd0;
+        col       = 3'd0;
+        row       = 3'd0;
 
-        // default select none
-        cur_val = 4'd0;
-        cur_v10 = 2'd0;
-
-        // Decide which card slot we're in, set cur_val/cur_v10 and base origin
-        // Then test if pixel is in TL or BR corner and evaluate glyph pixel.
-
-        // We reuse lx/ly/col/row for TL and BR; if either is on => corner_on=1.
-
-        // ---------------- Dealer 1 ----------------
+        // Dealer 1
         if (d1_fill && d1_has) begin
             cur_val = dealer_card1; cur_v10 = d10v1;
+
             // TL
             lx = $signed({1'b0,x}) - $signed(X0 + IN_X);
             ly = $signed({1'b0,y}) - $signed(D_Y + IN_Y);
-            if (lx >= 0 && ly >= 0 && lx < $signed((use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S))) && ly < $signed(GLYPH_H*DIG_S)) begin
-                col = lx / DIG_S;
-                row = ly / DIG_S;
-                if (use_two) begin
-                    if (col < 3'd5) corner_on = pix0;
-                    else if (col > 3'd5) begin
-                        // second glyph starts after a 1-col gap
-                        col = col - 3'd6;
-                        corner_on = pix1;
-                    end
-                end else begin
-                    corner_on = pix0;
-                end
-            end
-            // BR
-            lx = $signed({1'b0,x}) - $signed(X0 + CARD_W - IN_X - (use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S)));
-            ly = $signed({1'b0,y}) - $signed(D_Y + CARD_H - IN_Y - (GLYPH_H*DIG_S));
-            if (!corner_on && lx >= 0 && ly >= 0 && lx < $signed((use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S))) && ly < $signed(GLYPH_H*DIG_S)) begin
+            if (lx >= 0 && ly >= 0 && lx < label_w && ly < label_h) begin
                 col = lx / DIG_S;
                 row = ly / DIG_S;
                 if (use_two) begin
@@ -347,22 +299,29 @@ module blackjack_table (
                 end
             end
 
-        // ---------------- Dealer 2 ----------------
+            // BR
+            lx = $signed({1'b0,x}) - $signed(X0 + CARD_W - IN_X - label_w);
+            ly = $signed({1'b0,y}) - $signed(D_Y + CARD_H - IN_Y - label_h);
+            if (!corner_on && lx >= 0 && ly >= 0 && lx < label_w && ly < label_h) begin
+                col = lx / DIG_S;
+                row = ly / DIG_S;
+                if (use_two) begin
+                    if (col < 3'd5) corner_on = pix0;
+                    else if (col > 3'd5) begin
+                        col = col - 3'd6;
+                        corner_on = pix1;
+                    end
+                end else begin
+                    corner_on = pix0;
+                end
+            end
+
         end else if (d2_fill && d2_has) begin
             cur_val = dealer_card2; cur_v10 = d10v2;
 
             lx = $signed({1'b0,x}) - $signed(X1 + IN_X);
             ly = $signed({1'b0,y}) - $signed(D_Y + IN_Y);
-            if (lx >= 0 && ly >= 0 && lx < $signed((use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S))) && ly < $signed(GLYPH_H*DIG_S)) begin
-                col = lx / DIG_S; row = ly / DIG_S;
-                if (use_two) begin
-                    if (col < 3'd5) corner_on = pix0;
-                    else if (col > 3'd5) begin col = col - 3'd6; corner_on = pix1; end
-                end else corner_on = pix0;
-            end
-            lx = $signed({1'b0,x}) - $signed(X1 + CARD_W - IN_X - (use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S)));
-            ly = $signed({1'b0,y}) - $signed(D_Y + CARD_H - IN_Y - (GLYPH_H*DIG_S));
-            if (!corner_on && lx >= 0 && ly >= 0 && lx < $signed((use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S))) && ly < $signed(GLYPH_H*DIG_S)) begin
+            if (lx >= 0 && ly >= 0 && lx < label_w && ly < label_h) begin
                 col = lx / DIG_S; row = ly / DIG_S;
                 if (use_two) begin
                     if (col < 3'd5) corner_on = pix0;
@@ -370,22 +329,22 @@ module blackjack_table (
                 end else corner_on = pix0;
             end
 
-        // ---------------- Dealer 3 ----------------
+            lx = $signed({1'b0,x}) - $signed(X1 + CARD_W - IN_X - label_w);
+            ly = $signed({1'b0,y}) - $signed(D_Y + CARD_H - IN_Y - label_h);
+            if (!corner_on && lx >= 0 && ly >= 0 && lx < label_w && ly < label_h) begin
+                col = lx / DIG_S; row = ly / DIG_S;
+                if (use_two) begin
+                    if (col < 3'd5) corner_on = pix0;
+                    else if (col > 3'd5) begin col = col - 3'd6; corner_on = pix1; end
+                end else corner_on = pix0;
+            end
+
         end else if (d3_fill && d3_has) begin
             cur_val = dealer_card3; cur_v10 = d10v3;
 
             lx = $signed({1'b0,x}) - $signed(X2 + IN_X);
             ly = $signed({1'b0,y}) - $signed(D_Y + IN_Y);
-            if (lx >= 0 && ly >= 0 && lx < $signed((use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S))) && ly < $signed(GLYPH_H*DIG_S)) begin
-                col = lx / DIG_S; row = ly / DIG_S;
-                if (use_two) begin
-                    if (col < 3'd5) corner_on = pix0;
-                    else if (col > 3'd5) begin col = col - 3'd6; corner_on = pix1; end
-                end else corner_on = pix0;
-            end
-            lx = $signed({1'b0,x}) - $signed(X2 + CARD_W - IN_X - (use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S)));
-            ly = $signed({1'b0,y}) - $signed(D_Y + CARD_H - IN_Y - (GLYPH_H*DIG_S));
-            if (!corner_on && lx >= 0 && ly >= 0 && lx < $signed((use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S))) && ly < $signed(GLYPH_H*DIG_S)) begin
+            if (lx >= 0 && ly >= 0 && lx < label_w && ly < label_h) begin
                 col = lx / DIG_S; row = ly / DIG_S;
                 if (use_two) begin
                     if (col < 3'd5) corner_on = pix0;
@@ -393,22 +352,22 @@ module blackjack_table (
                 end else corner_on = pix0;
             end
 
-        // ---------------- Dealer 4 ----------------
+            lx = $signed({1'b0,x}) - $signed(X2 + CARD_W - IN_X - label_w);
+            ly = $signed({1'b0,y}) - $signed(D_Y + CARD_H - IN_Y - label_h);
+            if (!corner_on && lx >= 0 && ly >= 0 && lx < label_w && ly < label_h) begin
+                col = lx / DIG_S; row = ly / DIG_S;
+                if (use_two) begin
+                    if (col < 3'd5) corner_on = pix0;
+                    else if (col > 3'd5) begin col = col - 3'd6; corner_on = pix1; end
+                end else corner_on = pix0;
+            end
+
         end else if (d4_fill && d4_has) begin
             cur_val = dealer_card4; cur_v10 = d10v4;
 
             lx = $signed({1'b0,x}) - $signed(X3 + IN_X);
             ly = $signed({1'b0,y}) - $signed(D_Y + IN_Y);
-            if (lx >= 0 && ly >= 0 && lx < $signed((use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S))) && ly < $signed(GLYPH_H*DIG_S)) begin
-                col = lx / DIG_S; row = ly / DIG_S;
-                if (use_two) begin
-                    if (col < 3'd5) corner_on = pix0;
-                    else if (col > 3'd5) begin col = col - 3'd6; corner_on = pix1; end
-                end else corner_on = pix0;
-            end
-            lx = $signed({1'b0,x}) - $signed(X3 + CARD_W - IN_X - (use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S)));
-            ly = $signed({1'b0,y}) - $signed(D_Y + CARD_H - IN_Y - (GLYPH_H*DIG_S));
-            if (!corner_on && lx >= 0 && ly >= 0 && lx < $signed((use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S))) && ly < $signed(GLYPH_H*DIG_S)) begin
+            if (lx >= 0 && ly >= 0 && lx < label_w && ly < label_h) begin
                 col = lx / DIG_S; row = ly / DIG_S;
                 if (use_two) begin
                     if (col < 3'd5) corner_on = pix0;
@@ -416,22 +375,22 @@ module blackjack_table (
                 end else corner_on = pix0;
             end
 
-        // ---------------- Dealer 5 ----------------
+            lx = $signed({1'b0,x}) - $signed(X3 + CARD_W - IN_X - label_w);
+            ly = $signed({1'b0,y}) - $signed(D_Y + CARD_H - IN_Y - label_h);
+            if (!corner_on && lx >= 0 && ly >= 0 && lx < label_w && ly < label_h) begin
+                col = lx / DIG_S; row = ly / DIG_S;
+                if (use_two) begin
+                    if (col < 3'd5) corner_on = pix0;
+                    else if (col > 3'd5) begin col = col - 3'd6; corner_on = pix1; end
+                end else corner_on = pix0;
+            end
+
         end else if (d5_fill && d5_has) begin
             cur_val = dealer_card5; cur_v10 = d10v5;
 
             lx = $signed({1'b0,x}) - $signed(X4 + IN_X);
             ly = $signed({1'b0,y}) - $signed(D_Y + IN_Y);
-            if (lx >= 0 && ly >= 0 && lx < $signed((use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S))) && ly < $signed(GLYPH_H*DIG_S)) begin
-                col = lx / DIG_S; row = ly / DIG_S;
-                if (use_two) begin
-                    if (col < 3'd5) corner_on = pix0;
-                    else if (col > 3'd5) begin col = col - 3'd6; corner_on = pix1; end
-                end else corner_on = pix0;
-            end
-            lx = $signed({1'b0,x}) - $signed(X4 + CARD_W - IN_X - (use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S)));
-            ly = $signed({1'b0,y}) - $signed(D_Y + CARD_H - IN_Y - (GLYPH_H*DIG_S));
-            if (!corner_on && lx >= 0 && ly >= 0 && lx < $signed((use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S))) && ly < $signed(GLYPH_H*DIG_S)) begin
+            if (lx >= 0 && ly >= 0 && lx < label_w && ly < label_h) begin
                 col = lx / DIG_S; row = ly / DIG_S;
                 if (use_two) begin
                     if (col < 3'd5) corner_on = pix0;
@@ -439,22 +398,33 @@ module blackjack_table (
                 end else corner_on = pix0;
             end
 
-        // ---------------- Player 1..5 (same as dealer but Y=P_Y) ----------------
+            lx = $signed({1'b0,x}) - $signed(X4 + CARD_W - IN_X - label_w);
+            ly = $signed({1'b0,y}) - $signed(D_Y + CARD_H - IN_Y - label_h);
+            if (!corner_on && lx >= 0 && ly >= 0 && lx < label_w && ly < label_h) begin
+                col = lx / DIG_S; row = ly / DIG_S;
+                if (use_two) begin
+                    if (col < 3'd5) corner_on = pix0;
+                    else if (col > 3'd5) begin col = col - 3'd6; corner_on = pix1; end
+                end else corner_on = pix0;
+            end
+
+        // Player cards
         end else if (p1_fill && p1_has) begin
             cur_val = player_card1; cur_v10 = p10v1;
 
             lx = $signed({1'b0,x}) - $signed(X0 + IN_X);
             ly = $signed({1'b0,y}) - $signed(P_Y + IN_Y);
-            if (lx >= 0 && ly >= 0 && lx < $signed((use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S))) && ly < $signed(GLYPH_H*DIG_S)) begin
+            if (lx >= 0 && ly >= 0 && lx < label_w && ly < label_h) begin
                 col = lx / DIG_S; row = ly / DIG_S;
                 if (use_two) begin
                     if (col < 3'd5) corner_on = pix0;
                     else if (col > 3'd5) begin col = col - 3'd6; corner_on = pix1; end
                 end else corner_on = pix0;
             end
-            lx = $signed({1'b0,x}) - $signed(X0 + CARD_W - IN_X - (use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S)));
-            ly = $signed({1'b0,y}) - $signed(P_Y + CARD_H - IN_Y - (GLYPH_H*DIG_S));
-            if (!corner_on && lx >= 0 && ly >= 0 && lx < $signed((use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S))) && ly < $signed(GLYPH_H*DIG_S)) begin
+
+            lx = $signed({1'b0,x}) - $signed(X0 + CARD_W - IN_X - label_w);
+            ly = $signed({1'b0,y}) - $signed(P_Y + CARD_H - IN_Y - label_h);
+            if (!corner_on && lx >= 0 && ly >= 0 && lx < label_w && ly < label_h) begin
                 col = lx / DIG_S; row = ly / DIG_S;
                 if (use_two) begin
                     if (col < 3'd5) corner_on = pix0;
@@ -467,16 +437,17 @@ module blackjack_table (
 
             lx = $signed({1'b0,x}) - $signed(X1 + IN_X);
             ly = $signed({1'b0,y}) - $signed(P_Y + IN_Y);
-            if (lx >= 0 && ly >= 0 && lx < $signed((use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S))) && ly < $signed(GLYPH_H*DIG_S)) begin
+            if (lx >= 0 && ly >= 0 && lx < label_w && ly < label_h) begin
                 col = lx / DIG_S; row = ly / DIG_S;
                 if (use_two) begin
                     if (col < 3'd5) corner_on = pix0;
                     else if (col > 3'd5) begin col = col - 3'd6; corner_on = pix1; end
                 end else corner_on = pix0;
             end
-            lx = $signed({1'b0,x}) - $signed(X1 + CARD_W - IN_X - (use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S)));
-            ly = $signed({1'b0,y}) - $signed(P_Y + CARD_H - IN_Y - (GLYPH_H*DIG_S));
-            if (!corner_on && lx >= 0 && ly >= 0 && lx < $signed((use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S))) && ly < $signed(GLYPH_H*DIG_S)) begin
+
+            lx = $signed({1'b0,x}) - $signed(X1 + CARD_W - IN_X - label_w);
+            ly = $signed({1'b0,y}) - $signed(P_Y + CARD_H - IN_Y - label_h);
+            if (!corner_on && lx >= 0 && ly >= 0 && lx < label_w && ly < label_h) begin
                 col = lx / DIG_S; row = ly / DIG_S;
                 if (use_two) begin
                     if (col < 3'd5) corner_on = pix0;
@@ -489,16 +460,17 @@ module blackjack_table (
 
             lx = $signed({1'b0,x}) - $signed(X2 + IN_X);
             ly = $signed({1'b0,y}) - $signed(P_Y + IN_Y);
-            if (lx >= 0 && ly >= 0 && lx < $signed((use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S))) && ly < $signed(GLYPH_H*DIG_S)) begin
+            if (lx >= 0 && ly >= 0 && lx < label_w && ly < label_h) begin
                 col = lx / DIG_S; row = ly / DIG_S;
                 if (use_two) begin
                     if (col < 3'd5) corner_on = pix0;
                     else if (col > 3'd5) begin col = col - 3'd6; corner_on = pix1; end
                 end else corner_on = pix0;
             end
-            lx = $signed({1'b0,x}) - $signed(X2 + CARD_W - IN_X - (use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S)));
-            ly = $signed({1'b0,y}) - $signed(P_Y + CARD_H - IN_Y - (GLYPH_H*DIG_S));
-            if (!corner_on && lx >= 0 && ly >= 0 && lx < $signed((use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S))) && ly < $signed(GLYPH_H*DIG_S)) begin
+
+            lx = $signed({1'b0,x}) - $signed(X2 + CARD_W - IN_X - label_w);
+            ly = $signed({1'b0,y}) - $signed(P_Y + CARD_H - IN_Y - label_h);
+            if (!corner_on && lx >= 0 && ly >= 0 && lx < label_w && ly < label_h) begin
                 col = lx / DIG_S; row = ly / DIG_S;
                 if (use_two) begin
                     if (col < 3'd5) corner_on = pix0;
@@ -511,16 +483,17 @@ module blackjack_table (
 
             lx = $signed({1'b0,x}) - $signed(X3 + IN_X);
             ly = $signed({1'b0,y}) - $signed(P_Y + IN_Y);
-            if (lx >= 0 && ly >= 0 && lx < $signed((use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S))) && ly < $signed(GLYPH_H*DIG_S)) begin
+            if (lx >= 0 && ly >= 0 && lx < label_w && ly < label_h) begin
                 col = lx / DIG_S; row = ly / DIG_S;
                 if (use_two) begin
                     if (col < 3'd5) corner_on = pix0;
                     else if (col > 3'd5) begin col = col - 3'd6; corner_on = pix1; end
                 end else corner_on = pix0;
             end
-            lx = $signed({1'b0,x}) - $signed(X3 + CARD_W - IN_X - (use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S)));
-            ly = $signed({1'b0,y}) - $signed(P_Y + CARD_H - IN_Y - (GLYPH_H*DIG_S));
-            if (!corner_on && lx >= 0 && ly >= 0 && lx < $signed((use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S))) && ly < $signed(GLYPH_H*DIG_S)) begin
+
+            lx = $signed({1'b0,x}) - $signed(X3 + CARD_W - IN_X - label_w);
+            ly = $signed({1'b0,y}) - $signed(P_Y + CARD_H - IN_Y - label_h);
+            if (!corner_on && lx >= 0 && ly >= 0 && lx < label_w && ly < label_h) begin
                 col = lx / DIG_S; row = ly / DIG_S;
                 if (use_two) begin
                     if (col < 3'd5) corner_on = pix0;
@@ -533,16 +506,17 @@ module blackjack_table (
 
             lx = $signed({1'b0,x}) - $signed(X4 + IN_X);
             ly = $signed({1'b0,y}) - $signed(P_Y + IN_Y);
-            if (lx >= 0 && ly >= 0 && lx < $signed((use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S))) && ly < $signed(GLYPH_H*DIG_S)) begin
+            if (lx >= 0 && ly >= 0 && lx < label_w && ly < label_h) begin
                 col = lx / DIG_S; row = ly / DIG_S;
                 if (use_two) begin
                     if (col < 3'd5) corner_on = pix0;
                     else if (col > 3'd5) begin col = col - 3'd6; corner_on = pix1; end
                 end else corner_on = pix0;
             end
-            lx = $signed({1'b0,x}) - $signed(X4 + CARD_W - IN_X - (use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S)));
-            ly = $signed({1'b0,y}) - $signed(P_Y + CARD_H - IN_Y - (GLYPH_H*DIG_S));
-            if (!corner_on && lx >= 0 && ly >= 0 && lx < $signed((use_two ? ( (GLYPH_W*2 + 1)*DIG_S ) : (GLYPH_W*DIG_S))) && ly < $signed(GLYPH_H*DIG_S)) begin
+
+            lx = $signed({1'b0,x}) - $signed(X4 + CARD_W - IN_X - label_w);
+            ly = $signed({1'b0,y}) - $signed(P_Y + CARD_H - IN_Y - label_h);
+            if (!corner_on && lx >= 0 && ly >= 0 && lx < label_w && ly < label_h) begin
                 col = lx / DIG_S; row = ly / DIG_S;
                 if (use_two) begin
                     if (col < 3'd5) corner_on = pix0;
@@ -554,7 +528,6 @@ module blackjack_table (
 
     // ------------------------------------------------------------
     // BAL label (red): "BAL" + 4 digits
-    // place at left-middle
     // ------------------------------------------------------------
     localparam [9:0] BAL_X0 = 10'd40;
     localparam [9:0] BAL_Y0 = 10'd240;
@@ -566,51 +539,49 @@ module blackjack_table (
     reg [4:0] bcode;
     wire bpix;
 
+    // IMPORTANT: idx/cc must be declared OUTSIDE always @(*) in Verilog
+    reg [3:0] idx;
+    reg [2:0] cc;
+
     glyph5x7 u_b (.code(bcode), .col(bcol), .row(brow), .on(bpix));
 
     always @(*) begin
+        // DEFAULTS (prevent latches)
         bal_on = 1'b0;
+        blx    = 12'sd0;
+        bly    = 12'sd0;
+        idx    = 4'd0;
+        cc     = 3'd0;
+        bcol   = 3'd0;
+        brow   = 3'd0;
+        bcode  = 5'd0;
 
-        // compute local coordinates relative to label start
         blx = $signed({1'b0,x}) - $signed(BAL_X0);
         bly = $signed({1'b0,y}) - $signed(BAL_Y0);
 
-        // each glyph advanced by 6 units
-        // layout: B A L [space] d3 d2 d1 d0
-        // indices: 0 1 2 3 4  5  6  7  8 (where 3 is blank gap)
-
         if (blx >= 0 && bly >= 0 && blx < $signed(10'd9 * 10'd6 * BAL_S) && bly < $signed(10'd7 * BAL_S)) begin
-            // which character index?
-            // approximate: idx = blx / (6*BAL_S)
-            // (division is OK synthesizable; if you want fewer gates, we can replace with compares later)
-            reg [3:0] idx;
-            reg [2:0] cc;
-            idx = blx / (6*BAL_S);
-            cc  = (blx / BAL_S) - (idx * 6);
+            idx  = blx / (6*BAL_S);
+            cc   = (blx / BAL_S) - (idx * 6);
 
-            bcol = cc;             // 0..5, but glyph uses 0..4, col==5 is spacing
-            brow = (bly / BAL_S);
+            bcol = cc;                 // 0..5
+            brow = (bly / BAL_S);      // 0..6
 
-            bcode = 5'd0;
             if (bcol < 3'd5 && brow < 3'd7) begin
                 case (idx)
                     4'd0: bcode = 5'd15; // B
                     4'd1: bcode = 5'd1;  // A
                     4'd2: bcode = 5'd16; // L
-                    4'd4: bcode = {1'b0, bal_d3}; // digit 0..9 -> map below
+                    4'd4: bcode = {1'b0, bal_d3};
                     4'd5: bcode = {1'b0, bal_d2};
                     4'd6: bcode = {1'b0, bal_d1};
                     4'd7: bcode = {1'b0, bal_d0};
                     default: bcode = 5'd0;
                 endcase
 
-                // map digits 0..9 into our glyph codes:
-                // bal_dX is BCD 0..9
-                // glyph codes: 10 = digit0, 11 = digit1, 2..9 = digit2..digit9
                 if (idx >= 4'd4 && idx <= 4'd7) begin
-                    if (bcode[3:0] == 4'd0) bcode = 5'd10;
+                    if (bcode[3:0] == 4'd0)      bcode = 5'd10;
                     else if (bcode[3:0] == 4'd1) bcode = 5'd11;
-                    else bcode = {1'b0, bcode[3:0]}; // 2..9
+                    else                         bcode = {1'b0, bcode[3:0]};
                 end
 
                 bal_on = bpix;
@@ -619,48 +590,40 @@ module blackjack_table (
     end
 
     // ------------------------------------------------------------
-    // Painter: background -> cards -> diamond -> digits -> BAL
+    // Painter
     // ------------------------------------------------------------
     reg [1:0] R,G,B;
 
     always @(*) begin
-        // felt
         R = C0; G = GF; B = C0;
 
-        // card fill
         if ((d1_fill && d1_has) || (d2_fill && d2_has) || (d3_fill && d3_has) || (d4_fill && d4_has) || (d5_fill && d5_has) ||
             (p1_fill && p1_has) || (p2_fill && p2_has) || (p3_fill && p3_has) || (p4_fill && p4_has) || (p5_fill && p5_has)) begin
             R = C2; G = C2; B = C2;
         end
 
-        // border
         if ((d1_brd && d1_has) || (d2_brd && d2_has) || (d3_brd && d3_has) || (d4_brd && d4_has) || (d5_brd && d5_has) ||
             (p1_brd && p1_has) || (p2_brd && p2_has) || (p3_brd && p3_has) || (p4_brd && p4_has) || (p5_brd && p5_has)) begin
             R = C0; G = C0; B = C0;
         end
 
-        // diamond red
         if (diamond_on) begin
             R = 2'b11; G = 2'b00; B = 2'b00;
         end
 
-        // corner text black
         if (corner_on) begin
             R = C0; G = C0; B = C0;
         end
 
-        // BAL label red
         if (bal_on) begin
             R = 2'b11; G = 2'b00; B = 2'b00;
         end
 
-        // outside active area
         if (!active) begin
             R = C0; G = C0; B = C0;
         end
     end
 
-    // register output
     always @(posedge clk_25MHz or negedge rst_n) begin
         if (!rst_n) begin
             vga_r <= 2'b00;
@@ -677,18 +640,7 @@ endmodule
 
 
 // ============================================================================
-// glyph5x7: fixed 5x7 glyphs (NO functions/tasks)
-// code mapping:
-// 0 blank
-// 1 A
-// 2..9 digits 2..9
-// 10 digit0
-// 11 digit1
-// 12 J
-// 13 Q
-// 14 K
-// 15 B
-// 16 L
+// glyph5x7
 // ============================================================================
 module glyph5x7 (
     input  wire [4:0] code,
@@ -702,11 +654,9 @@ module glyph5x7 (
         r0=5'b00000; r1=5'b00000; r2=5'b00000; r3=5'b00000; r4=5'b00000; r5=5'b00000; r6=5'b00000;
 
         case (code)
-            // A
             5'd1: begin
                 r0=5'b00100; r1=5'b01010; r2=5'b10001; r3=5'b11111; r4=5'b10001; r5=5'b10001; r6=5'b00000;
             end
-            // 2..9 (same style as שלך)
             5'd2: begin
                 r0=5'b01110; r1=5'b10001; r2=5'b00001; r3=5'b00110; r4=5'b01000; r5=5'b11111; r6=5'b00000;
             end
@@ -731,37 +681,27 @@ module glyph5x7 (
             5'd9: begin
                 r0=5'b01110; r1=5'b10001; r2=5'b10001; r3=5'b01111; r4=5'b00001; r5=5'b00001; r6=5'b01110;
             end
-
-            // digit0
             5'd10: begin
                 r0=5'b01110; r1=5'b10001; r2=5'b10011; r3=5'b10101; r4=5'b11001; r5=5'b10001; r6=5'b01110;
             end
-            // digit1
             5'd11: begin
                 r0=5'b00100; r1=5'b01100; r2=5'b00100; r3=5'b00100; r4=5'b00100; r5=5'b00100; r6=5'b01110;
             end
-
-            // J
             5'd12: begin
                 r0=5'b00111; r1=5'b00010; r2=5'b00010; r3=5'b00010; r4=5'b10010; r5=5'b10010; r6=5'b01100;
             end
-            // Q
             5'd13: begin
                 r0=5'b01110; r1=5'b10001; r2=5'b10001; r3=5'b10001; r4=5'b10101; r5=5'b10010; r6=5'b01101;
             end
-            // K
             5'd14: begin
                 r0=5'b10001; r1=5'b10010; r2=5'b10100; r3=5'b11000; r4=5'b10100; r5=5'b10010; r6=5'b10001;
             end
-            // B
             5'd15: begin
                 r0=5'b11110; r1=5'b10001; r2=5'b10001; r3=5'b11110; r4=5'b10001; r5=5'b10001; r6=5'b11110;
             end
-            // L
             5'd16: begin
                 r0=5'b10000; r1=5'b10000; r2=5'b10000; r3=5'b10000; r4=5'b10000; r5=5'b10000; r6=5'b11111;
             end
-
             default: begin
                 r0=5'b00000; r1=5'b00000; r2=5'b00000; r3=5'b00000; r4=5'b00000; r5=5'b00000; r6=5'b00000;
             end
