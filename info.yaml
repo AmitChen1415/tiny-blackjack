@@ -9,7 +9,7 @@ project:
 
   # How many tiles your design occupies? A single tile is about 167x108 uM.
   # VGA + simple game logic usually fits in 2x2 or 3x2 depending on how heavy the renderer is.
-  tiles: "2x2"
+  tiles: "1x2"
 
   top_module:  "tt_um_AmitChen1415"
 
