@@ -34,7 +34,13 @@ module blackjack_core (
     output reg  [3:0]  bal_d3,
     output reg  [3:0]  bal_d2,
     output reg  [3:0]  bal_d1,
-    output reg  [3:0]  bal_d0
+    output reg  [3:0]  bal_d0,
+    
+    // DEBUG outputs for testing/verification
+    output wire [2:0]  state_dbg,
+    output wire [2:0]  p_cards_dbg,
+    output wire [2:0]  d_cards_dbg,
+    output wire        doubled_dbg
 );
 
     // ----------------------------
@@ -138,6 +144,12 @@ module blackjack_core (
 
     // blackjack only when player has exactly 2 cards and total==21
     wire is_natural_blackjack = (p_cards == 3'd2) && (user_total == 6'd21);
+
+    // Assign debug outputs (after register declarations)
+    assign state_dbg = state;
+    assign p_cards_dbg = p_cards;
+    assign d_cards_dbg = d_cards;
+    assign doubled_dbg = doubled;
 
     // ----------------------------
     // Next-state / next-values

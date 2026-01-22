@@ -48,6 +48,12 @@ module tt_um_AmitChen1415 (
   wire [9:0] user_balance;
   wire [3:0] bal_d3, bal_d2, bal_d1, bal_d0;
 
+  // Internal debug signal wires (for RTL testing via hierarchy)
+  wire [2:0] game_state;
+  wire [2:0] game_p_cards;
+  wire [2:0] game_d_cards;
+  wire       game_doubled;
+
   
 //Instantiate the table renderer
 blackjack_table gfx (
@@ -107,7 +113,11 @@ blackjack_table gfx (
     .player_card2_o (player_card2     ),  
     .player_card3_o (player_card3     ),
     .player_card4_o (player_card4     ),
-    .player_card5_o (player_card5     )
+    .player_card5_o (player_card5     ),
+    .state_dbg      (game_state       ),
+    .p_cards_dbg    (game_p_cards     ),
+    .d_cards_dbg    (game_d_cards     ),
+    .doubled_dbg    (game_doubled     )
     // RNG load/seed left unconnected here — can tie off or expose via uio if needed
   );
 

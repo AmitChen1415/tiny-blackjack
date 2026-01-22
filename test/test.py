@@ -13,6 +13,8 @@ import random
 # ui_in[2] = DOUBLE
 # ui_in[4] = START
 # -----------------------------------------------------------------------------
+
+
 BTN_HIT    = 1 << 0
 BTN_STAND  = 1 << 1
 BTN_DOUBLE = 1 << 2
@@ -39,16 +41,24 @@ class GameDriver:
         cocotb.start_soon(clock.start())
         self._clock = clock
 
-        # Get the hierarchical core handle via user_project wrapper (REQUIRED - not optional anymore)
+        # Try to get hierarchical core handle (RTL mode only - GL not supported due to TT framework restrictions)
         user_project = getattr(dut, "user_project", None)
-        if user_project is None:
-            raise RuntimeError("ERROR: user_project not found in DUT! Hierarchy not available!")
+        if user_project is not None:
+            self._core = getattr(user_project, "game_inst", None)
+            if self._core is not None:
+                dut._log.info("✓ RTL mode: game_inst hierarchy found via user_project")
+        else:
+            self._core = None
         
-        self._core = getattr(user_project, "game_inst", None)
+        # If RTL hierarchy not found, try top-level access
         if self._core is None:
-            raise RuntimeError("ERROR: game_inst not found in user_project! Hierarchy not available!")
+            self._core = getattr(dut, "game_inst", None)
+            if self._core is not None:
+                dut._log.info("✓ RTL mode: game_inst found at top level")
         
-        dut._log.info("✓ game_inst hierarchy found")
+        # If still not found, fail - GL testing not supported due to TT framework port restrictions
+        if self._core is None:
+            raise RuntimeError("ERROR: game_inst not found! Tests only run in RTL simulation mode (GL not supported by TT framework)")
 
         # VERIFY all required signals exist (FAIL if missing)
         required_signals = {
