@@ -3,6 +3,7 @@
 * SPDX-License-Identifier: Apache-2.0
 */
 `default_nettype none
+`timescale 1ns/1ps
 module tt_um_AmitChen1415 (
     input  wire [7:0] ui_in,
     output wire [7:0] uo_out,
@@ -46,6 +47,8 @@ module tt_um_AmitChen1415 (
 
   wire [4:0] next_card_val_o;
   wire [9:0] user_balance;
+  wire [5:0] game_user_total;
+  wire [5:0] game_dealer_total;
   wire [3:0] bal_d3, bal_d2, bal_d1, bal_d0;
 
   // Internal debug signal wires (for RTL testing via hierarchy)
@@ -53,6 +56,7 @@ module tt_um_AmitChen1415 (
   wire [2:0] game_p_cards;
   wire [2:0] game_d_cards;
   wire       game_doubled;
+
 
   
 //Instantiate the table renderer
@@ -81,15 +85,16 @@ blackjack_table gfx (
 );
 
 
-  // Outputs mapping (still mapped to VGA pins just for testing visuals)
-  assign uo_out[0] = red[1];
-  assign uo_out[1] = green[1];
-  assign uo_out[2] = blue[1];
-  assign uo_out[3] = vsync;
-  assign uo_out[4] = red[0];
-  assign uo_out[5] = green[0];
-  assign uo_out[6] = blue[0];
-  assign uo_out[7] = hsync;
+
+// Tapeout/RTL: normal VGA mapping
+assign uo_out[0] = red[1];
+assign uo_out[1] = green[1];
+assign uo_out[2] = blue[1];
+assign uo_out[3] = vsync;
+assign uo_out[4] = red[0];
+assign uo_out[5] = green[0];
+assign uo_out[6] = blue[0];
+assign uo_out[7] = hsync;
   
   // Connect to Blackjack core
   blackjack_core game_inst (
@@ -99,6 +104,8 @@ blackjack_table gfx (
     .btn_stand      (stand            ),
     .btn_double     (double_bet       ),
     .btn_start      (start            ),
+    .user_total     (game_user_total  ),
+    .dealer_total   (game_dealer_total),
     .balance        (user_balance     ),
     .bal_d3         (bal_d3           ),
     .bal_d2         (bal_d2           ),
@@ -117,8 +124,9 @@ blackjack_table gfx (
     .state_dbg      (game_state       ),
     .p_cards_dbg    (game_p_cards     ),
     .d_cards_dbg    (game_d_cards     ),
-    .doubled_dbg    (game_doubled     )
-    // RNG load/seed left unconnected here — can tie off or expose via uio if needed
+    .doubled_dbg    (game_doubled     ),
+    .rng_load       (1'b1             ), // Always load seed at startup
+    .rng_seed       (16'hACE1         )  // Constant seed for deterministic RNG
   );
 
   // Power-up synchronizer
