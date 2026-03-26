@@ -1110,7 +1110,17 @@ async def test_natural_blackjack_payout_observed(dut):
             delta = bal1 - bal0
             _classify_delta(delta)
             # Natural payout may push if dealer also has blackjack.
-            assert delta in (0, 75), f"Natural blackjack should result in push or +75, got delta {delta}"
+            if game.is_gls:
+                _, bal_mask, _ = game.read_with_mask("balance")
+                # If balance[0] is not visible in GLS, +75 may appear as +74/+76.
+                if (bal_mask & 1) == 0:
+                    assert delta in (0, 74, 75, 76), (
+                        f"Natural blackjack in GLS with hidden balance[0] should be push or ~+75, got delta {delta}"
+                    )
+                else:
+                    assert delta in (0, 75), f"Natural blackjack should result in push or +75, got delta {delta}"
+            else:
+                assert delta in (0, 75), f"Natural blackjack should result in push or +75, got delta {delta}"
             break
 
         await game.stand()

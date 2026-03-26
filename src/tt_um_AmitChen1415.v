@@ -61,8 +61,8 @@ module tt_um_AmitChen1415 (
   
 //Instantiate the table renderer
 blackjack_table gfx (
-   .clk_25MHz    (clk_pix    ),  // your 25 MHz pixel clock
-  .rst_n        (rst_pix_n   ),
+   .clk_25MHz    (clk   ),  // your 25 MHz pixel clock
+  .rst_n        (rst_n   ),
    .vga_hsync    (hsync       ),
    .vga_vsync    (vsync       ),
    .vga_r        (red         ),
@@ -136,20 +136,20 @@ assign uo_out[7] = hsync;
       .clk_in_rst_n_sync (clk_in_rst_n_sync)
   );
 
-  //PLL clock for table 
+  // //PLL clock for table 
 
-  // // --- Pixel clock from PLL (25.175 MHz) ---
-  wire clk_pix;          // 25.175 MHz
-  wire pll_locked;
+  // // // --- Pixel clock from PLL (25.175 MHz) ---
+  // wire clk_pix;          // 25.175 MHz
+  // wire pll_locked;
 
-  vga_pll u_pll (
-    .inclk0 (clk),       // 50 MHz board clock
-    .c0     (clk_pix),   // 25.175 MHz
-    .locked (pll_locked)
-  );
+  // vga_pll u_pll (
+  //   .inclk0 (clk),       // 50 MHz board clock
+  //   .c0     (clk_pix),   // 25.175 MHz
+  //   .locked (pll_locked)
+  // );
 
 
-// Hold the video path in reset until the PLL locks
-wire rst_pix_n;
-assign rst_pix_n = rst_n & pll_locked;
+// // Hold the video path in reset until the PLL locks
+// wire rst_pix_n;
+// assign rst_pix_n = rst_n & pll_locked;
 endmodule

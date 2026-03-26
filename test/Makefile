@@ -4,7 +4,14 @@
 # defaults
 SIM ?= icarus
 TOPLEVEL_LANG ?= verilog
+PYTHON ?= python3
 SRC_DIR = $(PWD)/../src
+
+# Prefer PDK_ROOT from environment; if missing, derive it from the run config.
+PDK_ROOT ?= $(shell sed -n 's/.*"PDK_ROOT"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' $(PWD)/../runs/wokwi/resolved.json | head -n 1)
+
+# Resolve cocotb makefiles through the selected Python interpreter.
+COCOTB_MAKEFILES := $(shell $(PYTHON) -c "import cocotb, os; print(os.path.join(os.path.dirname(cocotb.__file__), 'share', 'makefiles'))")
 # List of source files (relative to src/) — keep in sync with info.yaml
 PROJECT_SOURCES = tt_um_AmitChen1415.v \
 				  blackjack_core.v \
@@ -21,6 +28,10 @@ SIM_BUILD				= sim_build/rtl
 VERILOG_SOURCES += $(addprefix $(SRC_DIR)/,$(PROJECT_SOURCES))
 
 else
+
+ifeq ($(strip $(PDK_ROOT)),)
+$(error PDK_ROOT is not set. Export PDK_ROOT or ensure runs/wokwi/resolved.json contains a PDK_ROOT entry)
+endif
 
 # Gate level simulation:
 SIM_BUILD				= sim_build/gl
@@ -48,4 +59,4 @@ TOPLEVEL = tb
 MODULE = test
 
 # include cocotb's make rules to take care of the simulator setup
-include $(shell cocotb-config --makefiles)/Makefile.sim
+include $(COCOTB_MAKEFILES)/Makefile.sim
