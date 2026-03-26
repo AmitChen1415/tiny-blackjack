@@ -44,25 +44,47 @@ module blackjack_core (
 );
 
     // ----------------------------
-    // Button edge detect
+    // Button synchronize + edge detect
     // ----------------------------
+    reg hit_meta, stand_meta, double_meta, start_meta;
+    reg hit_sync, stand_sync, double_sync, start_sync;
     reg hit_d, stand_d, double_d, start_d;
-    wire hit_p    = btn_hit    & ~hit_d;
-    wire stand_p  = btn_stand  & ~stand_d;
-    wire double_p = btn_double & ~double_d;
-    wire start_p  = btn_start  & ~start_d;
+    wire hit_p    = hit_sync    & ~hit_d;
+    wire stand_p  = stand_sync  & ~stand_d;
+    wire double_p = double_sync & ~double_d;
+    wire start_p  = start_sync  & ~start_d;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
+            hit_meta <= 1'b0;
+            stand_meta <= 1'b0;
+            double_meta <= 1'b0;
+            start_meta <= 1'b0;
+
+            hit_sync  <= 1'b0;
+            stand_sync <= 1'b0;
+            double_sync <= 1'b0;
+            start_sync <= 1'b0;
+
             hit_d    <= 1'b0;
             stand_d  <= 1'b0;
             double_d <= 1'b0;
             start_d  <= 1'b0;
         end else begin
-            hit_d    <= btn_hit;
-            stand_d  <= btn_stand;
-            double_d <= btn_double;
-            start_d  <= btn_start;
+            hit_meta    <= btn_hit;
+            stand_meta  <= btn_stand;
+            double_meta <= btn_double;
+            start_meta  <= btn_start;
+
+            hit_sync    <= hit_meta;
+            stand_sync  <= stand_meta;
+            double_sync <= double_meta;
+            start_sync  <= start_meta;
+
+            hit_d    <= hit_sync;
+            stand_d  <= stand_sync;
+            double_d <= double_sync;
+            start_d  <= start_sync;
         end
     end
 
@@ -140,7 +162,9 @@ module blackjack_core (
     reg [5:0] user_total_n, dealer_total_n;
     reg [9:0] balance_n;
 
-    localparam [9:0] BET = 10'd50;
+    localparam [9:0] BET       = 10'd50;
+    localparam [9:0] START_BAL = 10'd500;
+    localparam [9:0] MAX_BAL   = 10'd999;
 
     // blackjack only when player has exactly 2 cards and total==21
     wire is_natural_blackjack = (p_cards == 3'd2) && (user_total == 6'd21);
@@ -310,15 +334,30 @@ module blackjack_core (
             S_SETTLE: begin
                 // settle once, then return idle
                 if (is_natural_blackjack) begin
-                    balance_n = balance + 10'd75; // 1.5*50
+                    if (balance > (MAX_BAL - 10'd75))
+                        balance_n = START_BAL;
+                    else
+                        balance_n = balance + 10'd75; // 1.5*50
                 end else if (user_total > 6'd21) begin
-                    balance_n = balance - bet_amt;
+                    if (balance < bet_amt)
+                        balance_n = START_BAL;
+                    else
+                        balance_n = balance - bet_amt;
                 end else if (dealer_total > 6'd21) begin
-                    balance_n = balance + bet_amt;
+                    if (balance > (MAX_BAL - bet_amt))
+                        balance_n = START_BAL;
+                    else
+                        balance_n = balance + bet_amt;
                 end else if (user_total > dealer_total) begin
-                    balance_n = balance + bet_amt;
+                    if (balance > (MAX_BAL - bet_amt))
+                        balance_n = START_BAL;
+                    else
+                        balance_n = balance + bet_amt;
                 end else if (user_total < dealer_total) begin
-                    balance_n = balance - bet_amt;
+                    if (balance < bet_amt)
+                        balance_n = START_BAL;
+                    else
+                        balance_n = balance - bet_amt;
                 end else begin
                     balance_n = balance; // push
                 end
@@ -340,7 +379,7 @@ module blackjack_core (
 
             user_total   <= 6'd0;
             dealer_total <= 6'd0;
-            balance      <= 10'd500;
+            balance      <= START_BAL;
 
             p_cards      <= 3'd0;
             d_cards      <= 3'd0;
