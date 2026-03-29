@@ -98,7 +98,7 @@ assign uo_out[7] = hsync;
   
   // Connect to Blackjack core
   blackjack_core game_inst (
-    .clk            (clk_pix          ), // Use pixel clock for game logic to keep in sync with rendering),
+    .clk            (clk       ), // Use pixel clock for game logic to keep in sync with rendering),
     .rst_n          (clk_in_rst_n_sync),
     .btn_hit        (hit              ),
     .btn_stand      (stand            ),
@@ -136,20 +136,20 @@ assign uo_out[7] = hsync;
       .clk_in_rst_n_sync (clk_in_rst_n_sync)
   );
 
-  //PLL clock for table 
+//   //PLL clock for table 
 
-  // // --- Pixel clock from PLL (25.175 MHz) ---
-  wire clk_pix;          // 25.175 MHz
-  wire pll_locked;
+//   // // --- Pixel clock from PLL (25.175 MHz) ---
+//   wire clk_pix;          // 25.175 MHz
+//   wire pll_locked;
 
-  vga_pll u_pll (
-    .inclk0 (clk),       // 50 MHz board clock
-    .c0     (clk_pix),   // 25.175 MHz
-    .locked (pll_locked)
-  );
+//   vga_pll u_pll (
+//     .inclk0 (clk),       // 50 MHz board clock
+//     .c0     (clk_pix),   // 25.175 MHz
+//     .locked (pll_locked)
+//   );
 
 
-// Hold the video path in reset until the PLL locks
-wire rst_pix_n;
-assign rst_pix_n = rst_n & pll_locked;
+// // Hold the video path in reset until the PLL locks
+// wire rst_pix_n;
+// assign rst_pix_n = rst_n & pll_locked;
 endmodule
