@@ -71,6 +71,16 @@ Connect the external hardware according to the specified pinout to play the Blac
 The system tracks the dealer and player hands, calculating totals in real-time.
 Use the designated hardware keys to Hit (request a card), Stand (end your turn),Double or Reset the game.
 
+Once the hardware is connected, test the following sequence:
+
+**Starting a New Round:** After a win or a loss, press the Start/Reset button (ui_in[4]). This action transitions the game state to the next round, clearing the previous hands and dealing a new set of cards.
+
+**Doubling Down:** During the player's turn, press the Double Bet button (ui_in[2]).
+
+Expected Logic: The current bet is doubled (shifting the potential outcome from $\pm50$ to $\pm100$). The player will automatically receive exactly one additional card, and the turn will immediately pass to the dealer.
+
+**Gameplay Actions:** Verify that Hit (ui_in[0]) adds a card and Stand (ui_in[1]) ends the player's turn manually.
+
 The goal is to achieve a hand value closer to 21 than the dealer without going over.
 
 **Hardware Synchronization**
@@ -93,8 +103,11 @@ Additionally, a VGA module is required to connect the FPGA board to an external 
 Place 4 push-button switches on a breadboard. For each key, follow the pinout specified below:
 
 Hit (Request Card) -> ui_in [0]
+
 Stand (End Turn) -> ui_in [1]
-Double Bet -> ui_in[1]
+
+Double Bet -> ui_in[2]
+
 Start / New Game -> ui_in[4]
 
 ## Display Setup
