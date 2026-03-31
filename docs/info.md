@@ -67,8 +67,39 @@ patterns) to render the table layout.
 
 ## How to test
 
-Explain how to use your project
+Connect the external hardware according to the specified pinout to play the Blackjack game.
+The system tracks the dealer and player hands, calculating totals in real-time.
+Use the designated hardware keys to Hit (request a card), Stand (end your turn),Double or Reset the game.
+
+The goal is to achieve a hand value closer to 21 than the dealer without going over.
+
+**Hardware Synchronization**
+
+When performing a test or initializing the system, ensure the PLL (Phase-Locked Loop) is correctly tuned. This step is critical to align the internal clock frequency with the FPGA, ensuring stable data transmission and synchronized game logic across the hardware interface.
 
 ## External hardware
 
-List external hardware used in your project (e.g. PMOD, LED display, etc), if any
+4 Keys (buttons) are required for game interaction:
+
+1) Start/Reset
+2) Hit
+3) Stand
+4) Double Bet
+
+Additionally, a VGA module is required to connect the FPGA board to an external display.
+
+**Connecting the Keys**
+
+Place 4 push-button switches on a breadboard. For each key, follow the pinout specified below:
+
+Hit (Request Card) -> ui_in [0]
+Stand (End Turn) -> ui_in [1]
+Double Bet -> ui_in[1]
+Start / New Game -> ui_in[4]
+
+## Display Setup
+
+Interface a standard VGA module with the assigned output pins to enable the game's visual output. Ensure the module is securely seated to maintain signal integrity for the display.
+
+![FPGA](https://github.com/user-attachments/assets/f1cee303-4e7a-4fbe-99d4-70eb974e1777)
+
