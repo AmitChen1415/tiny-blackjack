@@ -3,7 +3,6 @@
 * SPDX-License-Identifier: Apache-2.0
 */
 `default_nettype none
-`timescale 1ns/1ps
 module tt_um_AmitChen1415 (
     input  wire [7:0] ui_in,
     output wire [7:0] uo_out,
@@ -44,18 +43,18 @@ module tt_um_AmitChen1415 (
   assign stand      = ui_in[1];
   assign double_bet = ui_in[2];
   assign start      = ui_in[4];
-
-  wire [4:0] next_card_val_o;
   wire [9:0] user_balance;
   wire [5:0] game_user_total;
   wire [5:0] game_dealer_total;
-  wire [3:0] bal_d3, bal_d2, bal_d1, bal_d0;
-
-  // Internal debug signal wires (for RTL testing via hierarchy)
   wire [2:0] game_state;
   wire [2:0] game_p_cards;
   wire [2:0] game_d_cards;
   wire       game_doubled;
+  wire _unused_ok = &{1'b0, ena, uio_in, ui_in[7:5], ui_in[3], user_balance,
+                      game_user_total, game_dealer_total, game_state,
+                      game_p_cards, game_d_cards, game_doubled};
+
+  wire [3:0] bal_d3, bal_d2, bal_d1, bal_d0;
 
 
   

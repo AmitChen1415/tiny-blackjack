@@ -1,4 +1,7 @@
-`timescale 1ns/1ps
+`ifdef VERILATOR
+module tb_blackjack_core_interactive;
+endmodule
+`else
 
 module tb_blackjack_core_interactive;
 
@@ -24,6 +27,10 @@ module tb_blackjack_core_interactive;
   wire [3:0] bal_d3, bal_d2, bal_d1, bal_d0;
   wire [9:0] balance_num;
   wire [9:0] balance;
+  wire [2:0] state_dbg;
+  wire [2:0] p_cards_dbg;
+  wire [2:0] d_cards_dbg;
+  wire       doubled_dbg;
 
 
   // cards
@@ -69,7 +76,11 @@ module tb_blackjack_core_interactive;
     .player_card3_o (player_card3_o),
     .player_card4_o (player_card4_o),
     .player_card5_o (player_card5_o),
-    .balance(balance)
+    .balance        (balance),
+    .state_dbg      (state_dbg),
+    .p_cards_dbg    (p_cards_dbg),
+    .d_cards_dbg    (d_cards_dbg),
+    .doubled_dbg    (doubled_dbg)
   );
 
   assign balance_num = (bal_d3 * 10'd1000) + (bal_d2 * 10'd100) + (bal_d1 * 10'd10) + (bal_d0);
@@ -235,3 +246,5 @@ module tb_blackjack_core_interactive;
   end
 
 endmodule
+
+`endif
