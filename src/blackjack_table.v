@@ -1,5 +1,8 @@
 `default_nettype none
 
+/* verilator lint_off WIDTH */
+/* verilator lint_off UNOPTFLAT */
+
 module blackjack_table (
     input  wire        clk_25MHz,
     input  wire        rst_n,
@@ -49,7 +52,6 @@ module blackjack_table (
     // Colors (2-bit per channel)
     // ------------------------------------------------------------
     localparam [1:0] C0 = 2'b00; // black
-    localparam [1:0] C1 = 2'b01; // gray
     localparam [1:0] C2 = 2'b11; // white
     localparam [1:0] GF = 2'b10; // felt green
 
@@ -61,8 +63,7 @@ module blackjack_table (
     localparam [9:0] GAP    = 10'd8;
     localparam [9:0] BOR    = 10'd2;
 
-    localparam [9:0] TOTAL_W = 10'd382;          // 5*70 + 4*8
-    localparam [9:0] BASE_X  = 10'd129;          // 320 - TOTAL_W/2
+    localparam [9:0] BASE_X  = 10'd129;          // 320 - 382/2
     localparam [9:0] D_Y     = 10'd60;
     localparam [9:0] P_Y     = 10'd300;
 
@@ -638,10 +639,14 @@ module blackjack_table (
 
 endmodule
 
+/* verilator lint_on WIDTH */
+/* verilator lint_on UNOPTFLAT */
+
 
 // ============================================================================
 // glyph5x7
 // ============================================================================
+/* verilator lint_off DECLFILENAME */
 module glyph5x7 (
     input  wire [4:0] code,
     input  wire [2:0] col,
@@ -722,3 +727,4 @@ module glyph5x7 (
         end
     end
 endmodule
+/* verilator lint_on DECLFILENAME */

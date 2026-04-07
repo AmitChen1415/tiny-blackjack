@@ -1,5 +1,4 @@
 `default_nettype none
-`timescale 1ns/1ps
 
 module blackjack_core (
     input  wire        clk,
@@ -110,6 +109,7 @@ module blackjack_core (
     // ----------------------------
     reg [3:0] next_rank_int; // 1..13 internal only
     reg [3:0] next_value;    // 2..11 output to game logic
+    wire [5:0] next_value6 = {2'b00, next_value};
 
     always @(*) begin
         // fold lfsr[3:0] into a pseudo-rank 1..13
@@ -218,20 +218,20 @@ module blackjack_core (
             S_INIT_DEAL: begin
                 if (deal_count == 2'd0) begin
                     // P1
-                    user_total_n = user_total + next_value;
+                    user_total_n = user_total + next_value6;
                     p_cards_n    = 3'd1;
                     if (next_value == 4'd11) p_soft_n = p_soft + 3'd1;
                     deal_count_n = 2'd1;
 
                 end else if (deal_count == 2'd1) begin
                     // P2
-                    user_total_n = user_total + next_value;
+                    user_total_n = user_total + next_value6;
                     p_cards_n    = 3'd2;
                     if (next_value == 4'd11) p_soft_n = p_soft + 3'd1;
 
                     // soft ace adjust if bust
-                    if ((user_total + next_value) > 6'd21) begin
-                        user_total_n = (user_total + next_value) - 6'd10;
+                    if ((user_total + next_value6) > 6'd21) begin
+                        user_total_n = (user_total + next_value6) - 6'd10;
                         p_soft_n     = p_soft_n - 3'd1;
                     end
 
@@ -239,7 +239,7 @@ module blackjack_core (
 
                 end else begin
                     // D1
-                    dealer_total_n = dealer_total + next_value;
+                    dealer_total_n = dealer_total + next_value6;
                     d_cards_n      = 3'd1;
                     if (next_value == 4'd11) d_soft_n = d_soft + 3'd1;
 
@@ -258,7 +258,7 @@ module blackjack_core (
                 if (double_p && (p_cards == 3'd2)) begin
                     doubled_n    = 1'b1;
 
-                    user_total_n = user_total + next_value;
+                    user_total_n = user_total + next_value6;
                     p_cards_n = p_cards + 3'd1;
                     if (next_value == 4'd11) p_soft_n = p_soft + 3'd1;
 
@@ -271,7 +271,7 @@ module blackjack_core (
                     else nstate = S_DEALER;
 
                 end else if (hit_p) begin
-                    user_total_n = user_total + next_value;
+                    user_total_n = user_total + next_value6;
                     if (p_cards < 3'd5) p_cards_n = p_cards + 3'd1;
                     if (next_value == 4'd11) p_soft_n = p_soft + 3'd1;
 
@@ -313,7 +313,7 @@ module blackjack_core (
                 if (dealer_total >= 6'd17) begin
                     nstate = S_SETTLE;
                 end else begin
-                    dealer_total_n = dealer_total + next_value;
+                    dealer_total_n = dealer_total + next_value6;
                     if (d_cards < 3'd5) d_cards_n = d_cards + 3'd1;
                     if (next_value == 4'd11) d_soft_n = d_soft + 3'd1;
 
